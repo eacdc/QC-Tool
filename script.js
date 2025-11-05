@@ -617,7 +617,7 @@
 
   // Handle audit form submission
   if (elements.inspectionForm) {
-    elements.inspectionForm.addEventListener('submit', (e) => {
+    elements.inspectionForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
       // Collect form data
