@@ -477,7 +477,7 @@
           productionId: inspectionData.productionId,
           processId: inspectionData.processId,
           jobBookingJobCardContentsId: inspectionData.jobBookingJobCardContentsId,
-          jobBookingId: inspectionData.jobBookingId || 1869, // Default value
+          jobBookingId: inspectionData.jobBookingId, // From GetLatestMachineStatusPerMachine
           items: inspectionData.items,
           database: state.selectedDatabase,
         }),
@@ -580,7 +580,7 @@
     showLoading();
 
     try {
-      // Call the inspection template endpoint (currently hardcoded to use ProcessID 10337)
+      // Call the inspection template endpoint with the actual ProcessID from the process data
       const inspectionData = await fetchInspectionTemplate(processId);
       
       hideLoading();
@@ -659,7 +659,8 @@
         machine: state.currentAuditProcess?.MachineNmae || state.currentAuditProcess?.MachineName || 'N/A',
         productionId: state.currentAuditProcess?.ProductionID || state.currentAuditProcess?.Productionid,
         jobBookingJobCardContentsId: state.currentAuditProcess?.JobBookingJobCardContentsID || state.currentAuditProcess?.Jobbookingjobcardcontentsid,
-        processId: state.currentAuditProcess?.ProcessID || 10337
+        processId: state.currentAuditProcess?.ProcessID,
+        jobBookingId: state.currentAuditProcess?.JobBookingID || state.currentAuditProcess?.Jobbookingid
       };
       
       console.log('\nProcess Information:', processInfo);
@@ -673,7 +674,7 @@
           productionId: processInfo.productionId,
           processId: processInfo.processId,
           jobBookingJobCardContentsId: processInfo.jobBookingJobCardContentsId,
-          jobBookingId: 1869, // Default value as per requirement
+          jobBookingId: processInfo.jobBookingId, // Use actual JobBookingID from process data
           items: structuredAuditData
         });
         

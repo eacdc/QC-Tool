@@ -27,9 +27,9 @@ Quality Control tool for viewing and auditing running processes in the CDC syste
 ## API Endpoints Used
 
 - `POST /api/auth/login` - User authentication
-- `POST /api/machine-status/latest` - Fetch running processes (calls `GetLatestMachineStatusPerMachine` stored procedure)
-- `POST /api/qc/inspection-template` - Fetch inspection template for audit (calls `GetProcessInspectionTemplate` stored procedure with ProcessID 10337)
-- `POST /api/qc/save-inspection` - Save completed inspection audit (calls `SaveProcessInspection` stored procedure)
+- `POST /api/machine-status/latest` - Fetch running processes (calls `GetLatestMachineStatusPerMachine` stored procedure, returns ProcessID and JobBookingID)
+- `POST /api/qc/inspection-template` - Fetch inspection template for audit (calls `GetProcessInspectionTemplate` stored procedure with actual ProcessID)
+- `POST /api/qc/save-inspection` - Save completed inspection audit (calls `SaveProcessInspection` stored procedure with actual ProcessID and JobBookingID)
 
 ## File Structure
 
@@ -56,7 +56,7 @@ QC Tool/
 3. **Start Audit**:
    - Click "Start Audit" button on any process card
    - System fetches inspection template from `GetProcessInspectionTemplate` stored procedure
-   - Currently uses hardcoded ProcessID 10337 as per requirement
+   - Uses actual ProcessID from the running process data
    - Dynamic audit form is generated with all inspection parameters
    
 4. **Complete Audit Form**:
@@ -70,9 +70,9 @@ QC Tool/
    - System validates all required fields are filled
    - Calls `SaveProcessInspection` stored procedure with:
      - UserID: Logged in user
-     - ProductionID: From running process data
-     - ProcessID: 10337 (default)
-     - InspectionJson: Structured audit data
+     - ProductionID: From `GetLatestMachineStatusPerMachine` output
+     - ProcessID: From `GetLatestMachineStatusPerMachine` output
+     - InspectionJson: Structured audit data (includes JobBookingID from process data)
    - Success confirmation shown
    - Returns to running processes list
 
@@ -89,8 +89,8 @@ QC Tool/
 The audit workflow:
 
 1. **Fetch Inspection Template**:
-   - Calls `POST /api/qc/inspection-template`
-   - Backend calls `GetProcessInspectionTemplate` stored procedure (ProcessID 10337)
+   - Calls `POST /api/qc/inspection-template` with actual ProcessID
+   - Backend calls `GetProcessInspectionTemplate` stored procedure with ProcessID from process data
    - Returns inspection template with parameter definitions
 
 2. **Generate Dynamic Form**:
@@ -191,9 +191,9 @@ The backend receives and sends to the stored procedure:
 
 **Stored Procedure Parameters**:
 - `@UserID`: Logged in user ID (from session)
-- `@ProductionID`: From `GetLatestMachineStatusPerMachine` output
-- `@ProcessID`: 10337 (currently hardcoded)
-- `@InspectionJson`: The complete JSON structure above
+- `@ProductionID`: From `GetLatestMachineStatusPerMachine` output (ProductionID column)
+- `@ProcessID`: From `GetLatestMachineStatusPerMachine` output (ProcessID column)
+- `@InspectionJson`: The complete JSON structure above (includes JobBookingID from JobBookingID column)
 
 ## Browser Compatibility
 
