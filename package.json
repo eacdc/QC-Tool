@@ -1,0 +1,22 @@
+{
+  "name": "qc-tool",
+  "version": "1.0.0",
+  "description": "Quality Control tool for viewing and auditing running processes in the CDC system",
+  "main": "index.html",
+  "scripts": {
+    "start": "echo 'Static site - open index.html in browser'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eacdc/QC-Tool.git"
+  },
+  "keywords": [
+    "quality-control",
+    "cdc",
+    "audit",
+    "inspection"
+  ],
+  "author": "",
+  "license": "ISC"
+}
+
