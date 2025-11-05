@@ -705,14 +705,34 @@ select:focus {
   }
 
   .app-main {
-    padding: 1rem 1.5rem;
+    padding: 1rem;
   }
 
   .running-processes-list {
     grid-template-columns: 1fr;
-    max-width: 500px;
+    max-width: 100%;
     margin: 0 auto;
-    padding: 0 1rem;
+    padding: 0 12px; /* equal side gutters */
+  }
+
+  .running-process-card {
+    width: 100%;
+    padding: 1rem; /* tighter padding for small screens */
+  }
+
+  .process-card-header {
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .process-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .process-card-info h4 {
+    font-size: 1.125rem;
   }
 
   .section-header-content {
