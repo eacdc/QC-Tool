@@ -28,6 +28,7 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.5;
+  overflow-x: hidden; /* prevent horizontal scroll on small screens */
 }
 
 #app {
@@ -713,6 +714,12 @@ select:focus {
     max-width: 100%;
     margin: 0 auto;
     padding: 0 12px; /* equal side gutters */
+  }
+
+  #running-processes-section {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0 12px; /* match list gutters */
   }
 
   .running-process-card {
