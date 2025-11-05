@@ -705,11 +705,14 @@ select:focus {
   }
 
   .app-main {
-    padding: 1rem;
+    padding: 1rem 1.5rem;
   }
 
   .running-processes-list {
     grid-template-columns: 1fr;
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 0 1rem;
   }
 
   .section-header-content {
