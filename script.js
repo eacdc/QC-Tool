@@ -375,6 +375,15 @@
           <div class="process-card-details">
             <div class="detail-item">
               <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/>
+              </svg>
+              <div class="detail-content">
+                <div class="detail-label">Machine</div>
+                <div class="detail-value">${machineName}</div>
+              </div>
+            </div>
+            <div class="detail-item">
+              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
               </svg>
               <div class="detail-content">
@@ -389,15 +398,6 @@
               <div class="detail-content">
                 <div class="detail-label">Operator</div>
                 <div class="detail-value">${operatorName}</div>
-              </div>
-            </div>
-            <div class="detail-item">
-              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/>
-              </svg>
-              <div class="detail-content">
-                <div class="detail-label">Machine</div>
-                <div class="detail-value">${machineName}</div>
               </div>
             </div>
             <div class="detail-item">
@@ -604,6 +604,9 @@
         
         // Show audit form section
         showSection(elements.auditFormSection, 'audit-form');
+        
+        // Scroll to top of the page
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         
       } else {
         alert('No inspection template found for this process.');
