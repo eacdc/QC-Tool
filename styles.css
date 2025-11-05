@@ -706,25 +706,28 @@ select:focus {
   }
 
   .app-main {
-    padding: 1rem;
+    padding: 1.5rem 1rem;
   }
 
   .running-processes-list {
     grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 0 1rem; /* match CDC Web App gutters */
+    margin-top: 1.5rem;
     max-width: 100%;
-    margin: 0 auto;
-    padding: 0 12px; /* equal side gutters */
   }
 
   #running-processes-section {
-    max-width: 100%;
-    margin: 0 auto;
-    padding: 0 12px; /* match list gutters */
+    padding: 0;
   }
 
   .running-process-card {
-    width: 100%;
     padding: 1rem; /* tighter padding for small screens */
+    margin: 0;
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .process-card-header {
@@ -739,7 +742,10 @@ select:focus {
   }
 
   .process-card-info h4 {
-    font-size: 1.125rem;
+    font-size: 1rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
   }
 
   .section-header-content {
