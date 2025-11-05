@@ -29,6 +29,7 @@ Quality Control tool for viewing and auditing running processes in the CDC syste
 - `POST /api/auth/login` - User authentication
 - `POST /api/machine-status/latest` - Fetch running processes (calls `GetLatestMachineStatusPerMachine` stored procedure)
 - `POST /api/qc/inspection-template` - Fetch inspection template for audit (calls `GetProcessInspectionTemplate` stored procedure with ProcessID 10337)
+- `POST /api/qc/save-inspection` - Save completed inspection audit (calls `SaveProcessInspection` stored procedure)
 
 ## File Structure
 
@@ -56,8 +57,24 @@ QC Tool/
    - Click "Start Audit" button on any process card
    - System fetches inspection template from `GetProcessInspectionTemplate` stored procedure
    - Currently uses hardcoded ProcessID 10337 as per requirement
-   - Displays inspection template data in console and alert
-   - Shows number of inspection items and first few items
+   - Dynamic audit form is generated with all inspection parameters
+   
+4. **Complete Audit Form**:
+   - Fill in all required inspection parameters
+   - Text fields: Enter values manually
+   - Combo fields: Select from dropdown options
+   - All fields are mandatory
+   - Click "Submit Audit" to save
+   
+5. **Submit Audit**:
+   - System validates all required fields are filled
+   - Calls `SaveProcessInspection` stored procedure with:
+     - UserID: Logged in user
+     - ProductionID: From running process data
+     - ProcessID: 10337 (default)
+     - InspectionJson: Structured audit data
+   - Success confirmation shown
+   - Returns to running processes list
 
 ## Session Management
 
@@ -69,38 +86,54 @@ QC Tool/
 
 ### Current Implementation
 
-The "Start Audit" button currently:
-1. Calls `POST /api/qc/inspection-template` with the database selection
-2. Backend calls `GetProcessInspectionTemplate` stored procedure with ProcessID 10337 (hardcoded)
-3. Returns inspection template data
-4. Displays summary in an alert and logs full data to console
+The audit workflow:
 
-### Next Steps for Full Audit Form
+1. **Fetch Inspection Template**:
+   - Calls `POST /api/qc/inspection-template`
+   - Backend calls `GetProcessInspectionTemplate` stored procedure (ProcessID 10337)
+   - Returns inspection template with parameter definitions
 
-To create a full audit form UI, modify the `handleStartAudit` function in `script.js`:
+2. **Generate Dynamic Form**:
+   - Creates input fields based on template
+   - Text Field: Creates `<input type="text">` element
+   - Combo Field: Creates `<select>` dropdown with options
+   - All fields are marked as required
 
-```javascript
-async function handleStartAudit(process) {
-  // Current implementation fetches inspection template
-  const inspectionData = await fetchInspectionTemplate(processId);
-  
-  // TODO: Create inspection form UI
-  // - Display each inspection item
-  // - Add input fields for measurements/checks
-  // - Add pass/fail buttons
-  // - Add remarks field
-  // - Add submit button to save audit results
-}
+3. **Save Inspection**:
+   - Collects form data
+   - Structures data according to backend requirements
+   - Calls `POST /api/qc/save-inspection`
+   - Backend calls `SaveProcessInspection` stored procedure
+
+### Inspection Template Data Structure
+
+From `GetProcessInspectionTemplate` stored procedure:
+
+```json
+[
+  {
+    "parameter": "Counter",
+    "fieldType": "Text Field",
+    "options": null
+  },
+  {
+    "parameter": "Board Type",
+    "fieldType": "Combo Field",
+    "options": ["OK", "Not Ok"]
+  }
+]
 ```
 
-The inspection template data structure will include fields like:
-- parameter: Field name
-- fieldType: "Text Field" or "Combo Field"
-- options: Array of dropdown options (for Combo Fields)
+Fields:
+- **parameter**: Field name/label
+- **fieldType**: "Text Field" or "Combo Field"
+- **options**: Array of dropdown options (null for text fields)
 
 ### Audit Submission Output Format
 
-When the audit form is submitted, the data is structured as:
+When the audit form is submitted, the data is sent to `SaveProcessInspection` stored procedure:
+
+**Items Array** (sent as part of InspectionJson):
 
 ```json
 [
@@ -129,6 +162,38 @@ Where:
 - **result**: The value entered/selected by the user (from form)
 - **inputFieldType**: Type of field ("Text Field" or "Combo Field")
 - **defaultValue**: Pipe-separated options (only for Combo Fields)
+
+**Complete InspectionJson Structure**:
+
+The backend receives and sends to the stored procedure:
+
+```json
+{
+  "voucherPrefix": "QC",
+  "companyID": 2,
+  "jobBookingJobCardContentsID": 2887,
+  "jobBookingID": 1869,
+  "items": [
+    {
+      "parameter": "Counter",
+      "result": "5001",
+      "inputFieldType": "Text Field"
+    },
+    {
+      "parameter": "Board Type",
+      "result": "OK",
+      "inputFieldType": "Combo Field",
+      "defaultValue": "OK|Not Ok"
+    }
+  ]
+}
+```
+
+**Stored Procedure Parameters**:
+- `@UserID`: Logged in user ID (from session)
+- `@ProductionID`: From `GetLatestMachineStatusPerMachine` output
+- `@ProcessID`: 10337 (currently hardcoded)
+- `@InspectionJson`: The complete JSON structure above
 
 ## Browser Compatibility
 

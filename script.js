@@ -467,6 +467,33 @@
     }
   }
 
+  // Save Process Inspection
+  async function saveInspection(inspectionData) {
+    try {
+      const data = await apiRequest('qc/save-inspection', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: state.currentUserId || 2, // Use logged in user or default to 2
+          productionId: inspectionData.productionId,
+          processId: inspectionData.processId,
+          jobBookingJobCardContentsId: inspectionData.jobBookingJobCardContentsId,
+          jobBookingId: inspectionData.jobBookingId || 1869, // Default value
+          items: inspectionData.items,
+          database: state.selectedDatabase,
+        }),
+      });
+      
+      if (data.status === true) {
+        return data;
+      } else {
+        throw new Error(data.error || 'Failed to save inspection');
+      }
+    } catch (error) {
+      console.error('Error saving inspection:', error);
+      throw error;
+    }
+  }
+
   // Generate dynamic form fields based on inspection template
   function generateInspectionForm(inspectionData) {
     if (!elements.inspectionFields) return;
@@ -622,18 +649,44 @@
       console.log('Audit Form Submitted - Structured Data:');
       console.log(JSON.stringify(structuredAuditData, null, 2));
       
-      console.log('\nProcess Information:', {
+      const processInfo = {
         processName: state.currentAuditProcess?.Process || 'N/A',
         jobNumber: state.currentAuditProcess?.Jobnumber || 'N/A',
         operator: state.currentAuditProcess?.UserID || state.currentAuditProcess?.EmployeeName || 'N/A',
-        machine: state.currentAuditProcess?.MachineNmae || state.currentAuditProcess?.MachineName || 'N/A'
-      });
+        machine: state.currentAuditProcess?.MachineNmae || state.currentAuditProcess?.MachineName || 'N/A',
+        productionId: state.currentAuditProcess?.ProductionID || state.currentAuditProcess?.Productionid,
+        jobBookingJobCardContentsId: state.currentAuditProcess?.JobBookingJobCardContentsID || state.currentAuditProcess?.Jobbookingjobcardcontentsid,
+        processId: state.currentAuditProcess?.ProcessID || 10337
+      };
       
-      // TODO: Send structured audit data to backend for saving
-      alert('Audit submitted successfully!\n\nStructured data logged to console.\nCheck browser console (F12) for full output.');
+      console.log('\nProcess Information:', processInfo);
       
-      // Return to running processes
-      showRunningProcessesSection();
+      // Show loading state
+      showLoading();
+      
+      try {
+        // Save the inspection
+        const saveResult = await saveInspection({
+          productionId: processInfo.productionId,
+          processId: processInfo.processId,
+          jobBookingJobCardContentsId: processInfo.jobBookingJobCardContentsId,
+          jobBookingId: 1869, // Default value as per requirement
+          items: structuredAuditData
+        });
+        
+        hideLoading();
+        
+        console.log('Inspection saved successfully:', saveResult);
+        alert('Audit submitted successfully!\n\nInspection has been saved to the database.');
+        
+        // Return to running processes
+        showRunningProcessesSection();
+        
+      } catch (error) {
+        hideLoading();
+        console.error('Error saving inspection:', error);
+        alert('Failed to save inspection: ' + error.message + '\n\nPlease try again.');
+      }
     });
   }
 
