@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QC Tool - Running Processes</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <div class="header-content">
+        <div class="header-left">
+          <div class="logo-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+            </svg>
+          </div>
+          <h1 id="app-title">QC Tool - Running Processes</h1>
+        </div>
+        <div class="header-right">
+          <span id="user-info" class="user-info hidden"></span>
+          <button id="btn-logout" class="btn-icon hidden" title="Logout">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Login Section -->
+      <section id="login-section" class="card">
+        <div class="card-header">
+          <h2>Welcome to QC Tool</h2>
+          <p class="subtitle">Quality Control - Running Processes</p>
+        </div>
+        <form id="login-form">
+          <div class="form-row">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" autocomplete="username" required />
+          </div>
+          <div class="form-row">
+            <label for="database">Database</label>
+            <select id="database" name="database" required>
+              <option value="">Select database</option>
+              <option value="KOL">KOL</option>
+              <option value="AHM">AHM</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">
+              <span class="btn-text">Sign In</span>
+              <span class="btn-loader hidden"></span>
+            </button>
+          </div>
+          <p id="login-error" class="error" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <!-- Running Processes Section -->
+      <section id="running-processes-section" class="hidden">
+        <div class="section-header">
+          <div class="section-header-content">
+            <div class="running-processes-title">
+              <h2>Running Processes</h2>
+              <span id="running-processes-count" class="count-badge orange">0</span>
+            </div>
+            <p class="subtitle">View and audit all machines currently in production</p>
+          </div>
+        </div>
+        <div id="running-processes-list" class="running-processes-list"></div>
+        <div id="no-running-processes" class="empty-state hidden">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <h3>No Running Processes</h3>
+          <p>All machines are currently idle</p>
+        </div>
+      </section>
+
+      <!-- Audit Form Section -->
+      <section id="audit-form-section" class="hidden">
+        <div class="section-header">
+          <button id="btn-back-to-processes" class="back-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            Back to Processes
+          </button>
+          <div class="section-header-content">
+            <h2>Quality Control Audit</h2>
+            <p class="subtitle">Complete all inspection parameters</p>
+          </div>
+        </div>
+
+        <div class="audit-process-info">
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">Process:</span>
+              <span class="info-value" id="audit-process-name">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Job Number:</span>
+              <span class="info-value" id="audit-job-number">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Operator:</span>
+              <span class="info-value" id="audit-operator">-</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Machine:</span>
+              <span class="info-value" id="audit-machine">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="audit-form-container">
+          <form id="inspection-form">
+            <div id="inspection-fields" class="inspection-fields">
+              <!-- Dynamic fields will be inserted here -->
+            </div>
+            
+            <div class="form-actions-audit">
+              <button type="button" id="btn-cancel-audit" class="btn-secondary-audit">Cancel</button>
+              <button type="submit" class="btn-submit-audit">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+                </svg>
+                Submit Audit
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <small>&copy; <span id="year"></span> CDC. All rights reserved.</small>
+    </footer>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
+

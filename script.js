@@ -1,0 +1,703 @@
+(function() {
+  'use strict';
+
+  // API Configuration
+  const API_BASE_URL = 'https://cdcapi.onrender.com/api';
+
+  // Set current year in footer
+  const yearElement = document.getElementById('year');
+  if (yearElement) {
+    yearElement.textContent = new Date().getFullYear();
+  }
+
+  // State management
+  const state = {
+    currentUsername: null,
+    currentUserId: null,
+    currentLedgerId: null,
+    selectedDatabase: null,
+    machines: [],
+    currentScreen: 'login',
+  };
+
+  // Session storage keys
+  const SESSION_KEY = 'qc_session';
+  const SESSION_ID_KEY = 'qc_session_id';
+
+  // DOM Elements
+  const elements = {
+    // Sections
+    loginSection: document.getElementById('login-section'),
+    runningProcessesSection: document.getElementById('running-processes-section'),
+    auditFormSection: document.getElementById('audit-form-section'),
+    
+    // Login
+    loginForm: document.getElementById('login-form'),
+    usernameInput: document.getElementById('username'),
+    databaseSelect: document.getElementById('database'),
+    loginError: document.getElementById('login-error'),
+    
+    // Header
+    userInfo: document.getElementById('user-info'),
+    logoutBtn: document.getElementById('btn-logout'),
+    
+    // Running Processes
+    runningProcessesList: document.getElementById('running-processes-list'),
+    noRunningProcesses: document.getElementById('no-running-processes'),
+    runningProcessesCount: document.getElementById('running-processes-count'),
+    
+    // Audit Form
+    inspectionForm: document.getElementById('inspection-form'),
+    inspectionFields: document.getElementById('inspection-fields'),
+    auditProcessName: document.getElementById('audit-process-name'),
+    auditJobNumber: document.getElementById('audit-job-number'),
+    auditOperator: document.getElementById('audit-operator'),
+    auditMachine: document.getElementById('audit-machine'),
+    btnBackToProcesses: document.getElementById('btn-back-to-processes'),
+    btnCancelAudit: document.getElementById('btn-cancel-audit'),
+    
+    // Loading
+    loadingOverlay: document.getElementById('loading-overlay'),
+  };
+
+  // Helper Functions
+  function showLoading() {
+    if (elements.loadingOverlay) {
+      elements.loadingOverlay.classList.remove('hidden');
+    }
+  }
+
+  function hideLoading() {
+    elements.loadingOverlay?.classList.add('hidden');
+  }
+
+  function showError(message, element = elements.loginError) {
+    if (element) {
+      element.textContent = message;
+    }
+  }
+
+  function clearError(element = elements.loginError) {
+    if (element) {
+      element.textContent = '';
+    }
+  }
+
+  // Session Management
+  function saveSession(sessionData) {
+    try {
+      const sessionId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+      localStorage.setItem(SESSION_ID_KEY, sessionId);
+      console.log('Session saved:', sessionId);
+    } catch (error) {
+      console.error('Error saving session:', error);
+    }
+  }
+
+  function loadSession() {
+    try {
+      const sessionData = localStorage.getItem(SESSION_KEY);
+      if (sessionData) {
+        return JSON.parse(sessionData);
+      }
+    } catch (error) {
+      console.error('Error loading session:', error);
+      clearSession();
+    }
+    return null;
+  }
+
+  function clearSession() {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(SESSION_ID_KEY);
+      console.log('Session cleared');
+    } catch (error) {
+      console.error('Error clearing session:', error);
+    }
+  }
+
+  function getSessionId() {
+    return localStorage.getItem(SESSION_ID_KEY);
+  }
+
+  function restoreSession() {
+    const sessionData = loadSession();
+    if (sessionData) {
+      state.currentUsername = sessionData.username;
+      state.currentUserId = sessionData.userId;
+      state.currentLedgerId = sessionData.ledgerId;
+      state.selectedDatabase = sessionData.database;
+      state.machines = sessionData.machines || [];
+      
+      updateUserInfo();
+      showRunningProcessesSection();
+      console.log('Session restored for user:', sessionData.username);
+      return true;
+    }
+    return false;
+  }
+
+  // Cross-tab session synchronization
+  window.addEventListener('storage', (event) => {
+    if (event.key === SESSION_KEY) {
+      if (event.newValue === null) {
+        console.log('Session cleared in another tab, logging out...');
+        logout();
+      } else if (event.oldValue !== null) {
+        const newSession = JSON.parse(event.newValue);
+        const currentSessionId = getSessionId();
+        const newSessionId = localStorage.getItem(SESSION_ID_KEY);
+        
+        if (currentSessionId && newSessionId && currentSessionId !== newSessionId) {
+          console.log('New login detected in another tab, logging out current session...');
+          state.currentUsername = null;
+          state.currentUserId = null;
+          state.currentLedgerId = null;
+          state.selectedDatabase = null;
+          state.machines = [];
+          
+          if (elements.userInfo) {
+            elements.userInfo.classList.add('hidden');
+          }
+          if (elements.logoutBtn) {
+            elements.logoutBtn.classList.add('hidden');
+          }
+          
+          alert('You have been logged out because a new login was detected in another tab.');
+          
+          showSection(elements.loginSection, 'login');
+        }
+      }
+    }
+  });
+
+  function showSection(section, screenName = null) {
+    // Hide all sections
+    if (elements.loginSection) elements.loginSection.classList.add('hidden');
+    if (elements.runningProcessesSection) elements.runningProcessesSection.classList.add('hidden');
+    if (elements.auditFormSection) elements.auditFormSection.classList.add('hidden');
+    
+    // Show target section
+    if (section) {
+      section.classList.remove('hidden');
+      
+      if (screenName) {
+        state.currentScreen = screenName;
+      }
+      
+      // Show/hide logout button
+      if (screenName !== 'login') {
+        if (elements.logoutBtn) {
+          elements.logoutBtn.classList.remove('hidden');
+        }
+      } else {
+        if (elements.logoutBtn) {
+          elements.logoutBtn.classList.add('hidden');
+        }
+      }
+    }
+  }
+
+  async function apiRequest(endpoint, options = {}) {
+    const url = `${API_BASE_URL}/${endpoint}`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
+    
+    const config = {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...options.headers,
+      },
+      credentials: 'include',
+      signal: controller.signal,
+    };
+
+    try {
+      const response = await fetch(url, config);
+      clearTimeout(timeoutId);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || `Request failed with status ${response.status}`);
+      }
+      
+      return data;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout - Operation took too long. Please try again.');
+      }
+      console.error('API Request Error:', error);
+      throw error;
+    }
+  }
+
+  // Authentication
+  async function login(username, database) {
+    showLoading();
+    clearError();
+    
+    try {
+      const data = await apiRequest(`auth/login?username=${encodeURIComponent(username)}&database=${encodeURIComponent(database)}&_t=${Date.now()}`);
+      
+      if (data.status === true) {
+        state.currentUsername = username;
+        state.currentUserId = data.userId;
+        state.currentLedgerId = data.ledgerId;
+        state.selectedDatabase = database;
+        state.machines = data.machines || [];
+        
+        const sessionData = {
+          username,
+          userId: data.userId,
+          ledgerId: data.ledgerId,
+          database,
+          machines: data.machines || [],
+        };
+        saveSession(sessionData);
+        
+        updateUserInfo();
+        showRunningProcessesSection();
+        return true;
+      } else {
+        throw new Error(data.error || 'Login failed');
+      }
+    } catch (error) {
+      showError(error.message);
+      return false;
+    } finally {
+      hideLoading();
+    }
+  }
+
+  function updateUserInfo() {
+    if (elements.userInfo) {
+      elements.userInfo.textContent = `${state.currentUsername} (${state.selectedDatabase})`;
+      elements.userInfo.classList.remove('hidden');
+    }
+    if (elements.logoutBtn) {
+      elements.logoutBtn.classList.remove('hidden');
+    }
+  }
+
+  function logout() {
+    state.currentUsername = null;
+    state.currentUserId = null;
+    state.currentLedgerId = null;
+    state.selectedDatabase = null;
+    state.machines = [];
+    
+    if (elements.userInfo) {
+      elements.userInfo.classList.add('hidden');
+    }
+    if (elements.logoutBtn) {
+      elements.logoutBtn.classList.add('hidden');
+    }
+    
+    clearSession();
+    showSection(elements.loginSection, 'login');
+  }
+
+  // Fetch running machines from backend
+  async function fetchRunningProcesses() {
+    try {
+      const data = await apiRequest('machine-status/latest', {
+        method: 'POST',
+        body: JSON.stringify({
+          database: state.selectedDatabase,
+        }),
+      });
+      
+      if (data.status === true) {
+        return data.data || [];
+      } else {
+        throw new Error(data.error || 'Failed to fetch running processes');
+      }
+    } catch (error) {
+      console.error('Error fetching running processes:', error);
+      throw error;
+    }
+  }
+
+  // Render running processes
+  function renderRunningProcesses(machineStatuses) {
+    const runningMachines = machineStatuses.filter(status => 
+      status.MachineStatus && status.MachineStatus.toLowerCase() === 'running'
+    );
+
+    // Update count
+    if (elements.runningProcessesCount) {
+      elements.runningProcessesCount.textContent = runningMachines.length;
+    }
+
+    if (runningMachines.length === 0) {
+      if (elements.runningProcessesList) elements.runningProcessesList.classList.add('hidden');
+      if (elements.noRunningProcesses) elements.noRunningProcesses.classList.remove('hidden');
+      return;
+    }
+
+    if (elements.runningProcessesList) elements.runningProcessesList.classList.remove('hidden');
+    if (elements.noRunningProcesses) elements.noRunningProcesses.classList.add('hidden');
+
+    // Sort by LastUpdated (oldest to newest)
+    const sortedMachines = runningMachines.sort((a, b) => {
+      const aTime = new Date(a.LastUpadted || a.LastUpdated || 0).getTime();
+      const bTime = new Date(b.LastUpadted || b.LastUpdated || 0).getTime();
+      return aTime - bTime;
+    });
+
+    const html = sortedMachines.map((status, index) => {
+      const processName = status.Process || 'N/A';
+      const jobNumber = status.Jobnumber || 'N/A';
+      const operatorName = status.UserID || status.EmployeeName || status.Employee || status.UserName || status.Username || 'N/A';
+      const machineName = status.MachineNmae || status.MachineName || 'Unknown Machine';
+      const jobName = status['Job Name'] || status.JobName || 'N/A';
+      const lastUpdated = status.LastUpadted || status.LastUpdated || 'N/A';
+
+      return `
+        <div class="running-process-card">
+          <div class="process-card-header">
+            <div class="process-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </div>
+            <div class="process-card-info">
+              <h4>${processName}</h4>
+              <span class="status-badge running">Running</span>
+            </div>
+          </div>
+          <div class="process-card-details">
+            <div class="detail-item">
+              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+              </svg>
+              <div class="detail-content">
+                <div class="detail-label">Job Number</div>
+                <div class="detail-value">${jobNumber}</div>
+              </div>
+            </div>
+            <div class="detail-item">
+              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
+              <div class="detail-content">
+                <div class="detail-label">Operator</div>
+                <div class="detail-value">${operatorName}</div>
+              </div>
+            </div>
+            <div class="detail-item">
+              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/>
+              </svg>
+              <div class="detail-content">
+                <div class="detail-label">Machine</div>
+                <div class="detail-value">${machineName}</div>
+              </div>
+            </div>
+            <div class="detail-item">
+              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z"/>
+              </svg>
+              <div class="detail-content">
+                <div class="detail-label">Job Name</div>
+                <div class="detail-value">${jobName}</div>
+              </div>
+            </div>
+            <div class="detail-item">
+              <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+              </svg>
+              <div class="detail-content">
+                <div class="detail-label">Last Updated</div>
+                <div class="detail-value">${lastUpdated}</div>
+              </div>
+            </div>
+          </div>
+          <div class="process-card-actions">
+            <button class="btn-start-audit" data-process-index="${index}">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+              </svg>
+              Start Audit
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (elements.runningProcessesList) {
+      elements.runningProcessesList.innerHTML = html;
+
+      // Add event listeners for Start Audit buttons
+      elements.runningProcessesList.querySelectorAll('.btn-start-audit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const index = parseInt(btn.dataset.processIndex);
+          const process = sortedMachines[index];
+          handleStartAudit(process);
+        });
+      });
+    }
+  }
+
+  // Fetch inspection template for audit
+  async function fetchInspectionTemplate(processId) {
+    try {
+      const data = await apiRequest('qc/inspection-template', {
+        method: 'POST',
+        body: JSON.stringify({
+          processId: processId,
+          database: state.selectedDatabase,
+        }),
+      });
+      
+      if (data.status === true) {
+        return data.data || [];
+      } else {
+        throw new Error(data.error || 'Failed to fetch inspection template');
+      }
+    } catch (error) {
+      console.error('Error fetching inspection template:', error);
+      throw error;
+    }
+  }
+
+  // Generate dynamic form fields based on inspection template
+  function generateInspectionForm(inspectionData) {
+    if (!elements.inspectionFields) return;
+    
+    elements.inspectionFields.innerHTML = '';
+    
+    inspectionData.forEach((item, index) => {
+      const parameter = item.parameter || item.Parameter || '';
+      const fieldType = item.fieldType || item.FieldType || 'Text Field';
+      const options = item.options || item.Options || null;
+      
+      const fieldWrapper = document.createElement('div');
+      fieldWrapper.className = 'inspection-field';
+      
+      const label = document.createElement('label');
+      label.textContent = parameter;
+      label.setAttribute('for', `field-${index}`);
+      
+      const required = document.createElement('span');
+      required.className = 'required-indicator';
+      required.textContent = '*';
+      label.appendChild(required);
+      
+      let inputElement;
+      
+      // Check if options exist and are not empty
+      if (options && Array.isArray(options) && options.length > 0) {
+        // Create dropdown/select field
+        inputElement = document.createElement('select');
+        inputElement.id = `field-${index}`;
+        inputElement.name = parameter;
+        inputElement.required = true;
+        inputElement.className = 'form-select';
+        
+        // Add placeholder option
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = '-- Select --';
+        placeholderOption.disabled = true;
+        placeholderOption.selected = true;
+        inputElement.appendChild(placeholderOption);
+        
+        // Add options
+        options.forEach(optionValue => {
+          const option = document.createElement('option');
+          option.value = optionValue;
+          option.textContent = optionValue;
+          inputElement.appendChild(option);
+        });
+      } else {
+        // Create text input field
+        inputElement = document.createElement('input');
+        inputElement.type = 'text';
+        inputElement.id = `field-${index}`;
+        inputElement.name = parameter;
+        inputElement.required = true;
+        inputElement.className = 'form-input';
+        inputElement.placeholder = `Enter ${parameter}`;
+      }
+      
+      fieldWrapper.appendChild(label);
+      fieldWrapper.appendChild(inputElement);
+      elements.inspectionFields.appendChild(fieldWrapper);
+    });
+  }
+
+  // Handle Start Audit button click
+  async function handleStartAudit(process) {
+    const processName = process.Process || 'N/A';
+    const jobNumber = process.Jobnumber || 'N/A';
+    const operatorName = process.UserID || process.EmployeeName || process.Employee || 'N/A';
+    const machineName = process.MachineNmae || process.MachineName || 'N/A';
+    const processId = process.ProcessID || null;
+    
+    console.log('Starting audit for process:', {
+      processName,
+      jobNumber,
+      operatorName,
+      machineName,
+      processId,
+      fullProcess: process
+    });
+
+    showLoading();
+
+    try {
+      // Call the inspection template endpoint (currently hardcoded to use ProcessID 10337)
+      const inspectionData = await fetchInspectionTemplate(processId);
+      
+      hideLoading();
+      
+      console.log('Inspection Template Data:', inspectionData);
+      
+      // Display the inspection template data
+      if (inspectionData && inspectionData.length > 0) {
+        // Store current process data for form submission
+        state.currentAuditProcess = process;
+        state.currentInspectionTemplate = inspectionData;
+        
+        // Update audit form info
+        if (elements.auditProcessName) elements.auditProcessName.textContent = processName;
+        if (elements.auditJobNumber) elements.auditJobNumber.textContent = jobNumber;
+        if (elements.auditOperator) elements.auditOperator.textContent = operatorName;
+        if (elements.auditMachine) elements.auditMachine.textContent = machineName;
+        
+        // Generate form fields
+        generateInspectionForm(inspectionData);
+        
+        // Show audit form section
+        showSection(elements.auditFormSection, 'audit-form');
+        
+      } else {
+        alert('No inspection template found for this process.');
+      }
+      
+    } catch (error) {
+      hideLoading();
+      alert('Error loading inspection template: ' + error.message);
+    }
+  }
+
+  // Handle audit form submission
+  if (elements.inspectionForm) {
+    elements.inspectionForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      
+      // Collect form data
+      const formData = new FormData(elements.inspectionForm);
+      
+      // Structure the output as per requirement
+      const structuredAuditData = [];
+      
+      state.currentInspectionTemplate.forEach((item, index) => {
+        const parameter = item.parameter || item.Parameter || '';
+        const fieldType = item.fieldType || item.FieldType || 'Text Field';
+        const options = item.options || item.Options || null;
+        const result = formData.get(parameter) || '';
+        
+        const dataItem = {
+          parameter: parameter,
+          result: result,
+          inputFieldType: fieldType
+        };
+        
+        // Add defaultValue for Combo Field types
+        if (options && Array.isArray(options) && options.length > 0) {
+          dataItem.defaultValue = options.join('|');
+        }
+        
+        structuredAuditData.push(dataItem);
+      });
+      
+      console.log('Audit Form Submitted - Structured Data:');
+      console.log(JSON.stringify(structuredAuditData, null, 2));
+      
+      console.log('\nProcess Information:', {
+        processName: state.currentAuditProcess?.Process || 'N/A',
+        jobNumber: state.currentAuditProcess?.Jobnumber || 'N/A',
+        operator: state.currentAuditProcess?.UserID || state.currentAuditProcess?.EmployeeName || 'N/A',
+        machine: state.currentAuditProcess?.MachineNmae || state.currentAuditProcess?.MachineName || 'N/A'
+      });
+      
+      // TODO: Send structured audit data to backend for saving
+      alert('Audit submitted successfully!\n\nStructured data logged to console.\nCheck browser console (F12) for full output.');
+      
+      // Return to running processes
+      showRunningProcessesSection();
+    });
+  }
+
+  // Back to processes button
+  if (elements.btnBackToProcesses) {
+    elements.btnBackToProcesses.addEventListener('click', () => {
+      showRunningProcessesSection();
+    });
+  }
+
+  // Cancel audit button
+  if (elements.btnCancelAudit) {
+    elements.btnCancelAudit.addEventListener('click', () => {
+      if (confirm('Are you sure you want to cancel this audit? All entered data will be lost.')) {
+        showRunningProcessesSection();
+      }
+    });
+  }
+
+  // Show running processes section
+  async function showRunningProcessesSection() {
+    showSection(elements.runningProcessesSection, 'running-processes');
+    showLoading();
+
+    try {
+      const machineStatuses = await fetchRunningProcesses();
+      renderRunningProcesses(machineStatuses);
+    } catch (error) {
+      alert('Error loading running processes: ' + error.message);
+      logout();
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // Event Listeners
+  if (elements.loginForm) {
+    elements.loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = elements.usernameInput.value.trim();
+      const database = elements.databaseSelect.value;
+      
+      if (!username || !database) {
+        showError('Please enter username and select database');
+        return;
+      }
+      
+      await login(username, database);
+    });
+  }
+
+  if (elements.logoutBtn) {
+    elements.logoutBtn.addEventListener('click', logout);
+  }
+
+  // Initialize app
+  hideLoading();
+  
+  // Try to restore session from localStorage
+  const sessionRestored = restoreSession();
+  
+  // If no session, show login screen
+  if (!sessionRestored) {
+    showSection(elements.loginSection, 'login');
+  }
+})();
+
