@@ -688,10 +688,11 @@
     elements.dashboardEmptyState?.classList.add('hidden');
     elements.dashboardTableContainer.classList.remove('hidden');
 
+    const excludedColumns = new Set(['userid', 'user_id', 'user id']);
     const columns = [];
     rows.forEach(row => {
       Object.keys(row || {}).forEach((key) => {
-        if (!columns.includes(key)) {
+        if (!columns.includes(key) && !excludedColumns.has(key.toLowerCase())) {
           columns.push(key);
         }
       });
