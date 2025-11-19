@@ -18,6 +18,12 @@
     selectedDatabase: null,
     machines: [],
     currentScreen: 'login',
+    dashboard: {
+      startDate: null,
+      endDate: null,
+      data: [],
+      filteredData: [],
+    },
   };
 
   // Session storage keys
@@ -56,6 +62,24 @@
     btnBackToProcesses: document.getElementById('btn-back-to-processes'),
     btnCancelAudit: document.getElementById('btn-cancel-audit'),
     
+    // Dashboard
+    dashboardBtn: document.getElementById('btn-dashboard'),
+    dashboardModal: document.getElementById('dashboard-modal'),
+    dashboardModalForm: document.getElementById('dashboard-modal-form'),
+    dashboardStartDateInput: document.getElementById('dashboard-start-date'),
+    dashboardEndDateInput: document.getElementById('dashboard-end-date'),
+    dashboardModalClose: document.getElementById('btn-dashboard-modal-close'),
+    dashboardModalCancel: document.getElementById('btn-dashboard-cancel'),
+    dashboardSection: document.getElementById('dashboard-section'),
+    dashboardTableContainer: document.getElementById('dashboard-table-container'),
+    dashboardTableHead: document.getElementById('dashboard-table-head'),
+    dashboardTableBody: document.getElementById('dashboard-table-body'),
+    dashboardPersonFilter: document.getElementById('dashboard-person-filter'),
+    dashboardFetchBtn: document.getElementById('btn-dashboard-fetch'),
+    dashboardEmptyState: document.getElementById('dashboard-empty-state'),
+    dashboardDateRange: document.getElementById('dashboard-date-range'),
+    btnBackToProcessesFromDashboard: document.getElementById('btn-back-to-processes-from-dashboard'),
+    
     // Loading
     loadingOverlay: document.getElementById('loading-overlay'),
   };
@@ -69,6 +93,141 @@
 
   function hideLoading() {
     elements.loadingOverlay?.classList.add('hidden');
+  }
+
+  const DEFAULT_DASHBOARD_RANGE_DAYS = 30;
+
+  function formatDateForInput(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return '';
+    }
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function formatDateForDisplay(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) {
+      return dateStr;
+    }
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function getDefaultDashboardRange() {
+    const end = new Date();
+    const start = new Date(end.getTime() - DEFAULT_DASHBOARD_RANGE_DAYS * 24 * 60 * 60 * 1000);
+    return {
+      start: formatDateForInput(start),
+      end: formatDateForInput(end),
+    };
+  }
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) {
+      return '-';
+    }
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function humanizeKey(key) {
+    if (!key) return '';
+    return key
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .replace(/^./, (char) => char.toUpperCase())
+      .trim();
+  }
+
+  function getRowUserName(row) {
+    if (!row) return '';
+    return (
+      row.UserName ??
+      row.Username ??
+      row.username ??
+      row.QCPerson ??
+      row.QCName ??
+      row.Inspector ??
+      row.InspectorName ??
+      row.User ??
+      ''
+    );
+  }
+
+  function formatTableCellValue(value) {
+    if (value === null || value === undefined || value === '') {
+      return '-';
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value.toLocaleString();
+    }
+    if (value instanceof Date) {
+      return value.toLocaleString();
+    }
+    if (typeof value === 'string') {
+      const isoDatePattern = /^\d{4}-\d{2}-\d{2}/;
+      if (isoDatePattern.test(value)) {
+        return formatDateForDisplay(value);
+      }
+    }
+    return value;
+  }
+
+  function setDashboardModalValues() {
+    if (!elements.dashboardStartDateInput || !elements.dashboardEndDateInput) return;
+    const currentStart = state.dashboard.startDate;
+    const currentEnd = state.dashboard.endDate;
+    if (currentStart && currentEnd) {
+      elements.dashboardStartDateInput.value = currentStart;
+      elements.dashboardEndDateInput.value = currentEnd;
+      return;
+    }
+    const defaults = getDefaultDashboardRange();
+    elements.dashboardStartDateInput.value = defaults.start;
+    elements.dashboardEndDateInput.value = defaults.end;
+  }
+
+  function openDashboardModal() {
+    if (!elements.dashboardModal) return;
+    setDashboardModalValues();
+    elements.dashboardModal.classList.remove('hidden');
+    elements.dashboardStartDateInput?.focus();
+  }
+
+  function closeDashboardModal() {
+    elements.dashboardModal?.classList.add('hidden');
+  }
+
+  function resetDashboardState() {
+    state.dashboard = {
+      startDate: null,
+      endDate: null,
+      data: [],
+      filteredData: [],
+    };
+    if (elements.dashboardTableHead) elements.dashboardTableHead.innerHTML = '';
+    if (elements.dashboardTableBody) elements.dashboardTableBody.innerHTML = '';
+    elements.dashboardTableContainer?.classList.add('hidden');
+    elements.dashboardEmptyState?.classList.add('hidden');
+    if (elements.dashboardDateRange) elements.dashboardDateRange.textContent = '';
+    if (elements.dashboardPersonFilter) elements.dashboardPersonFilter.innerHTML = '<option value="">All QC Persons</option>';
+  }
+
+  function updateDashboardDateRangeLabel() {
+    if (!elements.dashboardDateRange) return;
+    if (state.dashboard.startDate && state.dashboard.endDate) {
+      elements.dashboardDateRange.textContent = `${formatDateForDisplay(state.dashboard.startDate)} – ${formatDateForDisplay(state.dashboard.endDate)}`;
+    } else {
+      elements.dashboardDateRange.textContent = '';
+    }
   }
 
   function showError(message, element = elements.loginError) {
@@ -178,6 +337,7 @@
     if (elements.loginSection) elements.loginSection.classList.add('hidden');
     if (elements.runningProcessesSection) elements.runningProcessesSection.classList.add('hidden');
     if (elements.auditFormSection) elements.auditFormSection.classList.add('hidden');
+    if (elements.dashboardSection) elements.dashboardSection.classList.add('hidden');
     
     // Show target section
     if (section) {
@@ -192,9 +352,15 @@
         if (elements.logoutBtn) {
           elements.logoutBtn.classList.remove('hidden');
         }
+        if (elements.dashboardBtn && state.currentUsername) {
+          elements.dashboardBtn.classList.remove('hidden');
+        }
       } else {
         if (elements.logoutBtn) {
           elements.logoutBtn.classList.add('hidden');
+        }
+        if (elements.dashboardBtn) {
+          elements.dashboardBtn.classList.add('hidden');
         }
       }
     }
@@ -283,6 +449,9 @@
     if (elements.logoutBtn) {
       elements.logoutBtn.classList.remove('hidden');
     }
+    if (elements.dashboardBtn) {
+      elements.dashboardBtn.classList.remove('hidden');
+    }
   }
 
   function logout() {
@@ -291,6 +460,7 @@
     state.currentLedgerId = null;
     state.selectedDatabase = null;
     state.machines = [];
+    resetDashboardState();
     
     if (elements.userInfo) {
       elements.userInfo.classList.add('hidden');
@@ -298,6 +468,10 @@
     if (elements.logoutBtn) {
       elements.logoutBtn.classList.add('hidden');
     }
+    if (elements.dashboardBtn) {
+      elements.dashboardBtn.classList.add('hidden');
+    }
+    closeDashboardModal();
     
     clearSession();
     showSection(elements.loginSection, 'login');
@@ -320,6 +494,41 @@
       }
     } catch (error) {
       console.error('Error fetching running processes:', error);
+      throw error;
+    }
+  }
+
+  async function fetchInspectorPerformanceReport(startDate, endDate) {
+    if (!startDate || !endDate) {
+      throw new Error('Start date and end date are required');
+    }
+    if (!state.selectedDatabase) {
+      throw new Error('Database selection missing. Please log in again.');
+    }
+
+    try {
+      const data = await apiRequest('reports/qc-inspector-performance', {
+        method: 'POST',
+        body: JSON.stringify({
+          database: state.selectedDatabase,
+          startDate,
+          endDate,
+        }),
+      });
+
+      if (data.status === true) {
+        if (Array.isArray(data.data)) {
+          return data.data;
+        }
+        if (Array.isArray(data.records)) {
+          return data.records;
+        }
+        return [];
+      }
+
+      throw new Error(data.error || 'Failed to load dashboard data');
+    } catch (error) {
+      console.error('Error fetching inspector performance:', error);
       throw error;
     }
   }
@@ -443,6 +652,132 @@
         });
       });
     }
+  }
+
+  function populateDashboardFilterOptions(data = []) {
+    if (!elements.dashboardPersonFilter) return;
+    const names = Array.from(
+      new Set(
+        data
+          .map(item => getRowUserName(item))
+          .filter(name => name && String(name).trim().length > 0)
+          .map(name => String(name).trim())
+      )
+    ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+    const options = [
+      '<option value="">All QC Persons</option>',
+      ...names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`),
+    ];
+
+    elements.dashboardPersonFilter.innerHTML = options.join('');
+    elements.dashboardPersonFilter.value = '';
+  }
+
+  function renderDashboardTable(rows = []) {
+    if (!elements.dashboardTableContainer || !elements.dashboardTableHead || !elements.dashboardTableBody) return;
+
+    if (!rows || rows.length === 0) {
+      elements.dashboardTableContainer.classList.add('hidden');
+      elements.dashboardEmptyState?.classList.remove('hidden');
+      elements.dashboardTableHead.innerHTML = '';
+      elements.dashboardTableBody.innerHTML = '';
+      return;
+    }
+
+    elements.dashboardEmptyState?.classList.add('hidden');
+    elements.dashboardTableContainer.classList.remove('hidden');
+
+    const columns = [];
+    rows.forEach(row => {
+      Object.keys(row || {}).forEach((key) => {
+        if (!columns.includes(key)) {
+          columns.push(key);
+        }
+      });
+    });
+
+    if (columns.length === 0) {
+      elements.dashboardTableContainer.classList.add('hidden');
+      elements.dashboardEmptyState?.classList.remove('hidden');
+      return;
+    }
+
+    const headerHtml = `<tr>${columns.map(col => `<th>${escapeHtml(humanizeKey(col))}</th>`).join('')}</tr>`;
+    elements.dashboardTableHead.innerHTML = headerHtml;
+
+    const bodyHtml = rows.map(row => {
+      const cells = columns.map(col => {
+        const cellValue = formatTableCellValue(row?.[col]);
+        return `<td>${escapeHtml(cellValue)}</td>`;
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+
+    elements.dashboardTableBody.innerHTML = bodyHtml;
+  }
+
+  function applyDashboardFilter() {
+    const selected = elements.dashboardPersonFilter?.value || '';
+    if (!Array.isArray(state.dashboard.data) || state.dashboard.data.length === 0) {
+      renderDashboardTable([]);
+      return;
+    }
+
+    let filtered = state.dashboard.data;
+    if (selected) {
+      const selectedLower = selected.toLowerCase();
+      filtered = state.dashboard.data.filter(row => {
+        const name = String(getRowUserName(row) || '').trim().toLowerCase();
+        return name === selectedLower;
+      });
+    }
+
+    state.dashboard.filteredData = filtered;
+    renderDashboardTable(filtered);
+  }
+
+  function showDashboardSection() {
+    showSection(elements.dashboardSection, 'dashboard');
+  }
+
+  async function loadDashboardData(startDate, endDate) {
+    showLoading();
+    try {
+      const rows = await fetchInspectorPerformanceReport(startDate, endDate);
+      state.dashboard.startDate = startDate;
+      state.dashboard.endDate = endDate;
+      state.dashboard.data = rows;
+      state.dashboard.filteredData = rows;
+      
+      populateDashboardFilterOptions(rows);
+      updateDashboardDateRangeLabel();
+      renderDashboardTable(rows);
+      closeDashboardModal();
+      showDashboardSection();
+    } catch (error) {
+      alert('Failed to load dashboard data: ' + error.message);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  async function handleDashboardModalSubmit(event) {
+    event?.preventDefault();
+    const startDate = elements.dashboardStartDateInput?.value;
+    const endDate = elements.dashboardEndDateInput?.value;
+
+    if (!startDate || !endDate) {
+      alert('Please select both start and end dates.');
+      return;
+    }
+
+    if (new Date(startDate) > new Date(endDate)) {
+      alert('Start date cannot be after end date.');
+      return;
+    }
+
+    await loadDashboardData(startDate, endDate);
   }
 
   // Fetch inspection template for audit
@@ -712,6 +1047,7 @@
 
   // Show running processes section
   async function showRunningProcessesSection() {
+    closeDashboardModal();
     showSection(elements.runningProcessesSection, 'running-processes');
     showLoading();
 
@@ -727,6 +1063,55 @@
   }
 
   // Event Listeners
+  if (elements.dashboardBtn) {
+    elements.dashboardBtn.addEventListener('click', () => {
+      if (!state.currentUsername) {
+        alert('Please log in to open the dashboard.');
+        return;
+      }
+      openDashboardModal();
+    });
+  }
+
+  if (elements.dashboardModalClose) {
+    elements.dashboardModalClose.addEventListener('click', closeDashboardModal);
+  }
+
+  if (elements.dashboardModalCancel) {
+    elements.dashboardModalCancel.addEventListener('click', closeDashboardModal);
+  }
+
+  if (elements.dashboardModal) {
+    elements.dashboardModal.addEventListener('click', (event) => {
+      if (event.target === elements.dashboardModal) {
+        closeDashboardModal();
+      }
+    });
+  }
+
+  if (elements.dashboardModalForm) {
+    elements.dashboardModalForm.addEventListener('submit', handleDashboardModalSubmit);
+  }
+
+  if (elements.dashboardFetchBtn) {
+    elements.dashboardFetchBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      applyDashboardFilter();
+    });
+  }
+
+  if (elements.btnBackToProcessesFromDashboard) {
+    elements.btnBackToProcessesFromDashboard.addEventListener('click', () => {
+      showRunningProcessesSection();
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && elements.dashboardModal && !elements.dashboardModal.classList.contains('hidden')) {
+      closeDashboardModal();
+    }
+  });
+
   if (elements.loginForm) {
     elements.loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();

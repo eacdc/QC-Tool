@@ -19,6 +19,12 @@
           <h1 id="app-title">QC Tool - Running Processes</h1>
         </div>
         <div class="header-right">
+          <button id="btn-dashboard" class="btn-dashboard hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+            </svg>
+            Dashboard
+          </button>
           <span id="user-info" class="user-info hidden"></span>
           <button id="btn-logout" class="btn-icon hidden" title="Logout">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
@@ -134,6 +140,50 @@
           </form>
         </div>
       </section>
+
+      <!-- Dashboard Section -->
+      <section id="dashboard-section" class="hidden">
+        <div class="section-header dashboard-header">
+          <button id="btn-back-to-processes-from-dashboard" class="back-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            Back to Processes
+          </button>
+          <div class="section-header-content">
+            <h2>QC Inspector Dashboard</h2>
+            <p class="subtitle">Daily performance overview</p>
+            <p id="dashboard-date-range" class="dashboard-date-range"></p>
+          </div>
+        </div>
+
+        <div class="dashboard-filters card">
+          <div class="filter-group">
+            <label for="dashboard-person-filter">QC Person</label>
+            <select id="dashboard-person-filter">
+              <option value="">All QC Persons</option>
+            </select>
+          </div>
+          <button id="btn-dashboard-fetch" class="btn-primary small">Fetch</button>
+        </div>
+
+        <div id="dashboard-empty-state" class="empty-state hidden">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <h3>No Data</h3>
+          <p>Adjust your filters or pick a different date range.</p>
+        </div>
+
+        <div id="dashboard-table-container" class="dashboard-table card hidden">
+          <div class="table-scroll">
+            <table>
+              <thead id="dashboard-table-head"></thead>
+              <tbody id="dashboard-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer class="app-footer">
@@ -145,6 +195,37 @@
   <div id="loading-overlay" class="loading-overlay hidden">
     <div class="spinner"></div>
     <p>Loading...</p>
+  </div>
+
+  <!-- Dashboard Date Modal -->
+  <div id="dashboard-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dashboard-modal-title">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="dashboard-modal-title">Select Date Range</h3>
+        <button id="btn-dashboard-modal-close" class="btn-icon small" title="Close modal">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+      <form id="dashboard-modal-form">
+        <div class="modal-body">
+          <div class="form-row">
+            <label for="dashboard-start-date">Start Date</label>
+            <input type="date" id="dashboard-start-date" required />
+          </div>
+          <div class="form-row">
+            <label for="dashboard-end-date">End Date</label>
+            <input type="date" id="dashboard-end-date" required />
+          </div>
+          <p class="modal-hint">The dashboard uses Report_QCInspector_DailyPerformance.</p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-dashboard-cancel" class="btn-secondary">Cancel</button>
+          <button type="submit" id="btn-dashboard-apply" class="btn-primary">OK</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script src="script.js" defer></script>
