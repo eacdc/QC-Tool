@@ -973,15 +973,20 @@
         const fieldType = item.fieldType || item.FieldType || 'Text Field';
         const options = item.options || item.Options || null;
         const result = formData.get(parameter) || '';
+        const hasOptions = options && Array.isArray(options) && options.length > 0;
+        // Combo Field with empty options was rendered as text input → send as Text Field so SP does not validate "value in options"
+        const effectiveFieldType = (fieldType === 'Combo Field' || fieldType === 'Combo field') && !hasOptions
+          ? 'Text Field'
+          : fieldType;
         
         const dataItem = {
           parameter: parameter,
           result: result,
-          inputFieldType: fieldType
+          inputFieldType: effectiveFieldType
         };
         
-        // Add defaultValue for Combo Field types
-        if (options && Array.isArray(options) && options.length > 0) {
+        // Add defaultValue for Combo Field types (only when options exist)
+        if (hasOptions) {
           dataItem.defaultValue = options.join('|');
         }
         
