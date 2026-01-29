@@ -1017,7 +1017,12 @@
         hideLoading();
         
         console.log('Inspection saved successfully:', saveResult);
-        alert('Audit submitted successfully!\n\nInspection has been saved to the database.');
+        let successMsg = 'Audit submitted successfully!\n\nInspection has been saved to the database.';
+        const voucherNo = saveResult.voucherNumber || (saveResult.result && saveResult.result[0] && (saveResult.result[0].voucherNo || saveResult.result[0].VoucherNo || saveResult.result[0].VoucherNumber || saveResult.result[0].VoucherNum || saveResult.result[0].VoucherCode || saveResult.result[0].voucherNumber));
+        if (voucherNo) {
+          successMsg += '\n\nVoucher No: ' + voucherNo;
+        }
+        alert(successMsg);
         
         // Return to running processes
         showRunningProcessesSection();
