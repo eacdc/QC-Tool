@@ -855,8 +855,11 @@
       
       let inputElement;
       
-      // Check if options exist and are not empty
-      if (options && Array.isArray(options) && options.length > 0) {
+      // Combo Field with non-empty options → dropdown; otherwise (Text Field or Combo with empty options) → manual text entry
+      const hasOptions = options && Array.isArray(options) && options.length > 0;
+      const useDropdown = (fieldType === 'Combo Field' || fieldType === 'Combo field') && hasOptions;
+      
+      if (useDropdown) {
         // Create dropdown/select field
         inputElement = document.createElement('select');
         inputElement.id = `field-${index}`;
@@ -880,7 +883,7 @@
           inputElement.appendChild(option);
         });
       } else {
-        // Create text input field
+        // Text Field, or Combo Field with empty/blank options → allow manual entry
         inputElement = document.createElement('input');
         inputElement.type = 'text';
         inputElement.id = `field-${index}`;
