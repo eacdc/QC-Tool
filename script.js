@@ -140,6 +140,19 @@
     return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  function formatDateTimeForDisplay(value) {
+    if (value === null || value === undefined || value === '') return '';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
   function getDefaultDashboardRange() {
     const end = new Date();
     const start = new Date(end.getTime() - DEFAULT_DASHBOARD_RANGE_DAYS * 24 * 60 * 60 * 1000);
@@ -210,12 +223,12 @@
       return value.toLocaleString();
     }
     if (value instanceof Date) {
-      return value.toLocaleString();
+      return formatDateTimeForDisplay(value);
     }
     if (typeof value === 'string') {
       const isoDatePattern = /^\d{4}-\d{2}-\d{2}/;
       if (isoDatePattern.test(value)) {
-        return formatDateForDisplay(value);
+        return formatDateTimeForDisplay(value);
       }
     }
     return value;
