@@ -628,6 +628,63 @@ select:focus {
   max-width: 320px;
 }
 
+.job-card-search {
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+}
+
+.job-card-search-header label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.job-card-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.job-card-search-row input {
+  flex: 1;
+  min-width: 180px;
+  height: 28px;
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.job-card-search-row input::placeholder {
+  color: var(--text-muted);
+}
+
+.job-card-search-header .error {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.modal-content-wide {
+  max-width: 90vw;
+  width: 800px;
+}
+
+.empty-state-compact {
+  padding: 1.5rem;
+}
+
+.empty-state-compact p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .dashboard-table {
   margin-top: 1.5rem;
 }
@@ -638,6 +695,7 @@ select:focus {
 
 .table-scroll {
   width: 100%;
+  max-height: 60vh;
   overflow: auto;
 }
 
@@ -645,6 +703,20 @@ select:focus {
   width: 100%;
   border-collapse: collapse;
   min-width: 600px;
+}
+
+.entry-count-link {
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.entry-count-link:hover {
+  color: var(--primary-hover);
 }
 
 .table-scroll thead th {

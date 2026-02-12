@@ -1,8 +1,13 @@
 (function() {
   'use strict';
 
-  // API Configuration
-  const API_BASE_URL = 'https://cdcapi.onrender.com/api';
+  // API Configuration: use local backend when testing on localhost, else production
+  const isLocal = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.protocol === 'file:'
+  );
+  const API_BASE_URL = isLocal ? 'http://localhost:3001/api' : 'https://cdcapi.onrender.com/api';
 
   // Set current year in footer
   const yearElement = document.getElementById('year');
@@ -51,6 +56,17 @@
     runningProcessesList: document.getElementById('running-processes-list'),
     noRunningProcesses: document.getElementById('no-running-processes'),
     runningProcessesCount: document.getElementById('running-processes-count'),
+    jobCardNumberInput: document.getElementById('job-card-number-input'),
+    btnJobCardSearch: document.getElementById('btn-job-card-search'),
+    jobCardSearchError: document.getElementById('job-card-search-error'),
+    jobCardResultsModal: document.getElementById('job-card-results-modal'),
+    jobCardResultsModalTitle: document.getElementById('job-card-results-modal-title'),
+    jobCardModalEmpty: document.getElementById('job-card-modal-empty'),
+    jobCardModalTableWrap: document.getElementById('job-card-modal-table-wrap'),
+    jobCardModalTableHead: document.getElementById('job-card-modal-table-head'),
+    jobCardModalTableBody: document.getElementById('job-card-modal-table-body'),
+    btnJobCardResultsClose: document.getElementById('btn-job-card-results-close'),
+    btnJobCardResultsDone: document.getElementById('btn-job-card-results-done'),
     
     // Audit Form
     inspectionForm: document.getElementById('inspection-form'),
@@ -79,7 +95,15 @@
     dashboardEmptyState: document.getElementById('dashboard-empty-state'),
     dashboardDateRange: document.getElementById('dashboard-date-range'),
     btnBackToProcessesFromDashboard: document.getElementById('btn-back-to-processes-from-dashboard'),
-    
+    dashboardAuditDetailModal: document.getElementById('dashboard-audit-detail-modal'),
+    dashboardAuditDetailModalTitle: document.getElementById('dashboard-audit-detail-modal-title'),
+    dashboardAuditDetailEmpty: document.getElementById('dashboard-audit-detail-empty'),
+    dashboardAuditDetailTableWrap: document.getElementById('dashboard-audit-detail-table-wrap'),
+    dashboardAuditDetailTableHead: document.getElementById('dashboard-audit-detail-table-head'),
+    dashboardAuditDetailTableBody: document.getElementById('dashboard-audit-detail-table-body'),
+    btnDashboardAuditDetailClose: document.getElementById('btn-dashboard-audit-detail-close'),
+    btnDashboardAuditDetailDone: document.getElementById('btn-dashboard-audit-detail-done'),
+
     // Loading
     loadingOverlay: document.getElementById('loading-overlay'),
   };
@@ -160,6 +184,22 @@
       row.User ??
       ''
     );
+  }
+
+  function getRowUserId(row) {
+    if (row == null) return null;
+    const id = row.UserID ?? row.userid ?? row.UserId ?? row.user_id;
+    if (id != null && id !== '') {
+      const n = parseInt(id, 10);
+      if (!Number.isNaN(n)) return n;
+    }
+    return null;
+  }
+
+  function isEntryCountColumn(col) {
+    if (!col || typeof col !== 'string') return false;
+    const k = col.toLowerCase().replace(/[\s_]/g, '');
+    return k === 'entrycount';
   }
 
   function formatTableCellValue(value) {
@@ -386,17 +426,33 @@
     try {
       const response = await fetch(url, config);
       clearTimeout(timeoutId);
-      const data = await response.json();
-      
+      const text = await response.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (parseErr) {
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error('This feature is not available on the server (404). Deploy the latest backend and try again.');
+          }
+          throw new Error(`Request failed (${response.status}). The server may need to be updated.`);
+        }
+        console.error('API Request Error:', parseErr);
+        throw new Error('Invalid response from server. Try again or contact support.');
+      }
+
       if (!response.ok) {
         throw new Error(data.error || `Request failed with status ${response.status}`);
       }
-      
+
       return data;
     } catch (error) {
       clearTimeout(timeoutId);
       if (error.name === 'AbortError') {
         throw new Error('Request timeout - Operation took too long. Please try again.');
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error('Server returned an error page. Deploy the latest backend and try again.');
       }
       console.error('API Request Error:', error);
       throw error;
@@ -496,6 +552,45 @@
       console.error('Error fetching running processes:', error);
       throw error;
     }
+  }
+
+  async function fetchJobCardEntries(jobBookingNo) {
+    if (!jobBookingNo || !String(jobBookingNo).trim()) {
+      throw new Error('Job card number is required');
+    }
+    if (!state.selectedDatabase) {
+      throw new Error('Database selection missing. Please log in again.');
+    }
+    const data = await apiRequest('reports/qc-job-card-entries', {
+      method: 'POST',
+      body: JSON.stringify({
+        database: state.selectedDatabase,
+        jobBookingNo: String(jobBookingNo).trim(),
+      }),
+    });
+    if (data.status === true && Array.isArray(data.data)) {
+      return data.data;
+    }
+    throw new Error(data.error || 'Failed to load job card entries');
+  }
+
+  async function fetchInspectorAuditDetail(startDate, endDate, userId) {
+    if (!state.selectedDatabase) {
+      throw new Error('Database selection missing. Please log in again.');
+    }
+    const data = await apiRequest('reports/qc-inspector-audit-detail', {
+      method: 'POST',
+      body: JSON.stringify({
+        database: state.selectedDatabase,
+        startDate,
+        endDate,
+        userId: Number(userId),
+      }),
+    });
+    if (data.status === true && Array.isArray(data.data)) {
+      return data.data;
+    }
+    throw new Error(data.error || 'Failed to load audit detail');
   }
 
   async function fetchInspectorPerformanceReport(startDate, endDate) {
@@ -707,6 +802,52 @@
     const headerHtml = `<tr>${columns.map(col => `<th>${escapeHtml(humanizeKey(col))}</th>`).join('')}</tr>`;
     elements.dashboardTableHead.innerHTML = headerHtml;
 
+    const bodyHtml = rows.map((row, rowIndex) => {
+      const cells = columns.map(col => {
+        const cellValue = formatTableCellValue(row?.[col]);
+        const displayVal = escapeHtml(cellValue);
+        if (isEntryCountColumn(col)) {
+          return `<td><button type="button" class="entry-count-link" data-row-index="${rowIndex}" title="View audit detail">${displayVal}</button></td>`;
+        }
+        return `<td>${displayVal}</td>`;
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+
+    elements.dashboardTableBody.innerHTML = bodyHtml;
+  }
+
+  function renderDashboardAuditDetailInModal(rows = [], title = '') {
+    const titleEl = elements.dashboardAuditDetailModalTitle;
+    const emptyEl = elements.dashboardAuditDetailEmpty;
+    const wrapEl = elements.dashboardAuditDetailTableWrap;
+    const headEl = elements.dashboardAuditDetailTableHead;
+    const bodyEl = elements.dashboardAuditDetailTableBody;
+    if (!titleEl || !emptyEl || !wrapEl || !headEl || !bodyEl) return;
+
+    if (titleEl) titleEl.textContent = title || 'Audit detail';
+
+    if (!rows || rows.length === 0) {
+      emptyEl.classList.remove('hidden');
+      wrapEl.classList.add('hidden');
+      headEl.innerHTML = '';
+      bodyEl.innerHTML = '';
+      return;
+    }
+
+    emptyEl.classList.add('hidden');
+    wrapEl.classList.remove('hidden');
+
+    const columns = [];
+    rows.forEach(row => {
+      Object.keys(row || {}).forEach((key) => {
+        if (!columns.includes(key)) columns.push(key);
+      });
+    });
+
+    const headerHtml = `<tr>${columns.map(col => `<th>${escapeHtml(humanizeKey(col))}</th>`).join('')}</tr>`;
+    headEl.innerHTML = headerHtml;
+
     const bodyHtml = rows.map(row => {
       const cells = columns.map(col => {
         const cellValue = formatTableCellValue(row?.[col]);
@@ -715,7 +856,65 @@
       return `<tr>${cells}</tr>`;
     }).join('');
 
-    elements.dashboardTableBody.innerHTML = bodyHtml;
+    bodyEl.innerHTML = bodyHtml;
+  }
+
+  function openDashboardAuditDetailModal() {
+    elements.dashboardAuditDetailModal?.classList.remove('hidden');
+  }
+
+  function closeDashboardAuditDetailModal() {
+    elements.dashboardAuditDetailModal?.classList.add('hidden');
+  }
+
+  function renderJobCardTableInModal(rows = [], jobBookingNo = '') {
+    const titleEl = elements.jobCardResultsModalTitle;
+    const emptyEl = elements.jobCardModalEmpty;
+    const wrapEl = elements.jobCardModalTableWrap;
+    const headEl = elements.jobCardModalTableHead;
+    const bodyEl = elements.jobCardModalTableBody;
+    if (!titleEl || !emptyEl || !wrapEl || !headEl || !bodyEl) return;
+
+    if (titleEl) titleEl.textContent = jobBookingNo ? `QC entries for ${escapeHtml(jobBookingNo)}` : 'QC entries';
+
+    if (!rows || rows.length === 0) {
+      emptyEl.classList.remove('hidden');
+      wrapEl.classList.add('hidden');
+      headEl.innerHTML = '';
+      bodyEl.innerHTML = '';
+      return;
+    }
+
+    emptyEl.classList.add('hidden');
+    wrapEl.classList.remove('hidden');
+
+    const columns = [];
+    rows.forEach(row => {
+      Object.keys(row || {}).forEach((key) => {
+        if (!columns.includes(key)) columns.push(key);
+      });
+    });
+
+    const headerHtml = `<tr>${columns.map(col => `<th>${escapeHtml(humanizeKey(col))}</th>`).join('')}</tr>`;
+    headEl.innerHTML = headerHtml;
+
+    const bodyHtml = rows.map(row => {
+      const cells = columns.map(col => {
+        const cellValue = formatTableCellValue(row?.[col]);
+        return `<td>${escapeHtml(cellValue)}</td>`;
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+
+    bodyEl.innerHTML = bodyHtml;
+  }
+
+  function openJobCardResultsModal() {
+    elements.jobCardResultsModal?.classList.remove('hidden');
+  }
+
+  function closeJobCardResultsModal() {
+    elements.jobCardResultsModal?.classList.add('hidden');
   }
 
   function applyDashboardFilter() {
@@ -1114,6 +1313,53 @@
     });
   }
 
+  if (elements.dashboardTableBody) {
+    elements.dashboardTableBody.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.entry-count-link');
+      if (!btn) return;
+      const rowIndex = btn.getAttribute('data-row-index');
+      if (rowIndex == null) return;
+      const rows = state.dashboard.filteredData || state.dashboard.data || [];
+      const row = rows[parseInt(rowIndex, 10)];
+      if (!row) return;
+      const userId = getRowUserId(row);
+      if (userId == null) {
+        alert('User ID is not available for this row. The dashboard report may need to return UserID.');
+        return;
+      }
+      const startDate = state.dashboard.startDate;
+      const endDate = state.dashboard.endDate;
+      if (!startDate || !endDate) {
+        alert('Date range is missing. Please open the dashboard again and select a date range.');
+        return;
+      }
+      const userName = getRowUserName(row) || 'Inspector';
+      showLoading();
+      try {
+        const detailRows = await fetchInspectorAuditDetail(startDate, endDate, userId);
+        const title = `Audit detail: ${userName} (${startDate} – ${endDate})`;
+        renderDashboardAuditDetailInModal(detailRows, title);
+        openDashboardAuditDetailModal();
+      } catch (err) {
+        alert('Failed to load audit detail: ' + (err.message || 'Unknown error'));
+      } finally {
+        hideLoading();
+      }
+    });
+  }
+
+  if (elements.btnDashboardAuditDetailClose) {
+    elements.btnDashboardAuditDetailClose.addEventListener('click', closeDashboardAuditDetailModal);
+  }
+  if (elements.btnDashboardAuditDetailDone) {
+    elements.btnDashboardAuditDetailDone.addEventListener('click', closeDashboardAuditDetailModal);
+  }
+  if (elements.dashboardAuditDetailModal) {
+    elements.dashboardAuditDetailModal.addEventListener('click', (e) => {
+      if (e.target === elements.dashboardAuditDetailModal) closeDashboardAuditDetailModal();
+    });
+  }
+
   if (elements.btnBackToProcessesFromDashboard) {
     elements.btnBackToProcessesFromDashboard.addEventListener('click', () => {
       showRunningProcessesSection();
@@ -1144,6 +1390,63 @@
   if (elements.logoutBtn) {
     elements.logoutBtn.addEventListener('click', logout);
   }
+
+  async function handleJobCardSearch() {
+    const jobNo = elements.jobCardNumberInput?.value?.trim() || '';
+    if (elements.jobCardSearchError) elements.jobCardSearchError.textContent = '';
+    if (!jobNo) {
+      if (elements.jobCardSearchError) {
+        elements.jobCardSearchError.textContent = 'Please enter a job card number.';
+      }
+      return;
+    }
+    showLoading();
+    try {
+      const rows = await fetchJobCardEntries(jobNo);
+      renderJobCardTableInModal(rows, jobNo);
+      openJobCardResultsModal();
+    } catch (err) {
+      if (elements.jobCardSearchError) {
+        elements.jobCardSearchError.textContent = err.message || 'Search failed.';
+      }
+    } finally {
+      hideLoading();
+    }
+  }
+
+  if (elements.btnJobCardSearch) {
+    elements.btnJobCardSearch.addEventListener('click', handleJobCardSearch);
+  }
+  if (elements.jobCardNumberInput) {
+    elements.jobCardNumberInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleJobCardSearch();
+      }
+    });
+  }
+
+  if (elements.btnJobCardResultsClose) {
+    elements.btnJobCardResultsClose.addEventListener('click', closeJobCardResultsModal);
+  }
+  if (elements.btnJobCardResultsDone) {
+    elements.btnJobCardResultsDone.addEventListener('click', closeJobCardResultsModal);
+  }
+  if (elements.jobCardResultsModal) {
+    elements.jobCardResultsModal.addEventListener('click', (e) => {
+      if (e.target === elements.jobCardResultsModal) closeJobCardResultsModal();
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && elements.jobCardResultsModal && !elements.jobCardResultsModal.classList.contains('hidden')) {
+      closeJobCardResultsModal();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && elements.dashboardAuditDetailModal && !elements.dashboardAuditDetailModal.classList.contains('hidden')) {
+      closeDashboardAuditDetailModal();
+    }
+  });
 
   // Initialize app
   hideLoading();
