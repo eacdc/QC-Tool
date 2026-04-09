@@ -29,6 +29,12 @@
       data: [],
       filteredData: [],
     },
+    jobCardSearch: {
+      lastJobNo: '',
+      viewMode: 'process',
+      processRows: [],
+      userRows: [],
+    },
   };
 
   // Session storage keys
@@ -67,6 +73,8 @@
     jobCardModalTableBody: document.getElementById('job-card-modal-table-body'),
     btnJobCardResultsClose: document.getElementById('btn-job-card-results-close'),
     btnJobCardResultsDone: document.getElementById('btn-job-card-results-done'),
+    btnJobCardViewProcess: document.getElementById('btn-job-card-view-process'),
+    btnJobCardViewUser: document.getElementById('btn-job-card-view-user'),
     
     // Audit Form
     inspectionForm: document.getElementById('inspection-form'),
@@ -151,6 +159,25 @@
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+
+  function formatDateTimeInIST(value) {
+    if (value === null || value === undefined || value === '') return '';
+    const raw = String(value).trim();
+    if (!raw) return '';
+    if (/\bIST\b/i.test(raw)) return raw;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }) + ' IST';
   }
 
   function getDefaultDashboardRange() {
@@ -567,7 +594,7 @@
     }
   }
 
-  async function fetchJobCardEntries(jobBookingNo) {
+  async function fetchJobCardEntries(jobBookingNo, viewMode = 'process') {
     if (!jobBookingNo || !String(jobBookingNo).trim()) {
       throw new Error('Job card number is required');
     }
@@ -579,12 +606,28 @@
       body: JSON.stringify({
         database: state.selectedDatabase,
         jobBookingNo: String(jobBookingNo).trim(),
+        viewMode: viewMode === 'user' ? 'user' : 'process',
       }),
     });
     if (data.status === true && Array.isArray(data.data)) {
       return data.data;
     }
     throw new Error(data.error || 'Failed to load job card entries');
+  }
+
+  function setJobCardViewMode(viewMode) {
+    const nextMode = viewMode === 'user' ? 'user' : 'process';
+    state.jobCardSearch.viewMode = nextMode;
+    if (elements.btnJobCardViewProcess) {
+      const active = nextMode === 'process';
+      elements.btnJobCardViewProcess.classList.toggle('active', active);
+      elements.btnJobCardViewProcess.setAttribute('aria-pressed', String(active));
+    }
+    if (elements.btnJobCardViewUser) {
+      const active = nextMode === 'user';
+      elements.btnJobCardViewUser.classList.toggle('active', active);
+      elements.btnJobCardViewUser.setAttribute('aria-pressed', String(active));
+    }
   }
 
   async function fetchInspectorAuditDetail(startDate, endDate, userId) {
@@ -901,22 +944,165 @@
     emptyEl.classList.add('hidden');
     wrapEl.classList.remove('hidden');
 
-    const columns = [];
-    rows.forEach(row => {
-      Object.keys(row || {}).forEach((key) => {
-        if (!columns.includes(key)) columns.push(key);
+    // Fixed columns as requested for QC job-card search output.
+    const headerHtml = `
+      <tr>
+        <th class="jobcard-expand-col"></th>
+        <th>Process Name</th>
+        <th>Parameter Name</th>
+        <th>Number of OK</th>
+        <th>Number of Not OK</th>
+        <th>Inspection Start At (IST)</th>
+        <th>Inspection End At (IST)</th>
+      </tr>
+    `;
+    headEl.innerHTML = headerHtml;
+
+    const groups = new Map();
+    rows.forEach((row) => {
+      const processName = String(row?.ProcessName ?? row?.processName ?? 'Unknown Process').trim() || 'Unknown Process';
+      if (!groups.has(processName)) groups.set(processName, []);
+      groups.get(processName).push(row || {});
+    });
+
+    const groupEntries = Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const bodyParts = [];
+
+    const parseDateMs = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const cleaned = String(value).replace(/\s*IST\s*$/i, '').trim();
+      const dt = new Date(cleaned);
+      if (Number.isNaN(dt.getTime())) return null;
+      return dt.getTime();
+    };
+
+    groupEntries.forEach(([processName, groupRows], groupIndex) => {
+      const groupId = `group-${groupIndex}`;
+      const sumOk = groupRows.reduce((acc, row) => {
+        const v = Number(row?.['Number of OK'] ?? row?.NumberOfOK ?? row?.OKCount ?? row?.okCount ?? 0);
+        return acc + (Number.isFinite(v) ? v : 0);
+      }, 0);
+      const sumNotOk = groupRows.reduce((acc, row) => {
+        const v = Number(row?.['Number of Not OK'] ?? row?.NumberOfNotOK ?? row?.NotOKCount ?? row?.notOkCount ?? 0);
+        return acc + (Number.isFinite(v) ? v : 0);
+      }, 0);
+      let minStartMs = null;
+      let maxEndMs = null;
+      groupRows.forEach((row) => {
+        const startMs = parseDateMs(row?.['Inspection Start At'] ?? row?.InspectionStartAt ?? row?.inspectionStartAt ?? '');
+        const endMs = parseDateMs(row?.['Inspection End At'] ?? row?.InspectionEndAt ?? row?.inspectionEndAt ?? '');
+        if (startMs != null && (minStartMs == null || startMs < minStartMs)) minStartMs = startMs;
+        if (endMs != null && (maxEndMs == null || endMs > maxEndMs)) maxEndMs = endMs;
+      });
+      const minStartText = minStartMs == null ? '-' : formatDateTimeInIST(new Date(minStartMs));
+      const maxEndText = maxEndMs == null ? '-' : formatDateTimeInIST(new Date(maxEndMs));
+
+      bodyParts.push(`
+        <tr class="jobcard-group-row" data-group-id="${groupId}">
+          <td class="jobcard-expand-cell">
+            <button type="button" class="jobcard-group-toggle" data-group-id="${groupId}" aria-expanded="false" aria-label="Expand ${escapeHtml(processName)} group">+</button>
+          </td>
+          <td class="jobcard-group-name">${escapeHtml(processName)}</td>
+          <td class="jobcard-group-summary">Summary (${escapeHtml(groupRows.length)} parameter(s))</td>
+          <td class="jobcard-group-summary">${escapeHtml(formatTableCellValue(sumOk))}</td>
+          <td class="jobcard-group-summary">${escapeHtml(formatTableCellValue(sumNotOk))}</td>
+          <td class="jobcard-group-summary">${escapeHtml(minStartText)}</td>
+          <td class="jobcard-group-summary">${escapeHtml(maxEndText)}</td>
+        </tr>
+      `);
+
+      groupRows.forEach((row) => {
+        const parameterName = row?.ParameterName ?? row?.parameterName ?? '-';
+        const okCount = row?.['Number of OK'] ?? row?.NumberOfOK ?? row?.OKCount ?? row?.okCount ?? 0;
+        const notOkCount = row?.['Number of Not OK'] ?? row?.NumberOfNotOK ?? row?.NotOKCount ?? row?.notOkCount ?? 0;
+        const inspectionStartAt = row?.['Inspection Start At'] ?? row?.InspectionStartAt ?? row?.inspectionStartAt ?? '';
+        const inspectionEndAt = row?.['Inspection End At'] ?? row?.InspectionEndAt ?? row?.inspectionEndAt ?? '';
+
+        bodyParts.push(`
+          <tr class="jobcard-detail-row hidden" data-parent-group="${groupId}">
+            <td></td>
+            <td>${escapeHtml(processName)}</td>
+            <td>${escapeHtml(formatTableCellValue(parameterName))}</td>
+            <td>${escapeHtml(formatTableCellValue(okCount))}</td>
+            <td>${escapeHtml(formatTableCellValue(notOkCount))}</td>
+            <td>${escapeHtml(formatDateTimeInIST(inspectionStartAt))}</td>
+            <td>${escapeHtml(formatDateTimeInIST(inspectionEndAt))}</td>
+          </tr>
+        `);
       });
     });
 
-    const headerHtml = `<tr>${columns.map(col => `<th>${escapeHtml(humanizeKey(col))}</th>`).join('')}</tr>`;
-    headEl.innerHTML = headerHtml;
+    bodyEl.innerHTML = bodyParts.join('');
 
-    const bodyHtml = rows.map(row => {
-      const cells = columns.map(col => {
-        const cellValue = formatTableCellValue(row?.[col]);
-        return `<td>${escapeHtml(cellValue)}</td>`;
-      }).join('');
-      return `<tr>${cells}</tr>`;
+    bodyEl.querySelectorAll('.jobcard-group-toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const groupId = btn.getAttribute('data-group-id');
+        if (!groupId) return;
+        const targetRows = bodyEl.querySelectorAll(`.jobcard-detail-row[data-parent-group="${groupId}"]`);
+        const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+        const nextExpanded = !isExpanded;
+
+        targetRows.forEach((row) => {
+          row.classList.toggle('hidden', !nextExpanded);
+        });
+        btn.textContent = nextExpanded ? '−' : '+';
+        btn.setAttribute('aria-expanded', String(nextExpanded));
+      });
+    });
+  }
+
+  function renderUserWiseJobCardTableInModal(rows = [], jobBookingNo = '') {
+    const titleEl = elements.jobCardResultsModalTitle;
+    const emptyEl = elements.jobCardModalEmpty;
+    const wrapEl = elements.jobCardModalTableWrap;
+    const headEl = elements.jobCardModalTableHead;
+    const bodyEl = elements.jobCardModalTableBody;
+    if (!titleEl || !emptyEl || !wrapEl || !headEl || !bodyEl) return;
+
+    titleEl.textContent = jobBookingNo ? `QC entries for ${escapeHtml(jobBookingNo)} (User-wise)` : 'QC entries (User-wise)';
+
+    if (!rows || rows.length === 0) {
+      emptyEl.classList.remove('hidden');
+      wrapEl.classList.add('hidden');
+      headEl.innerHTML = '';
+      bodyEl.innerHTML = '';
+      return;
+    }
+
+    emptyEl.classList.add('hidden');
+    wrapEl.classList.remove('hidden');
+
+    headEl.innerHTML = `
+      <tr>
+        <th>User Name</th>
+        <th>Entry Date</th>
+        <th>Entry Count</th>
+        <th>First Entry At (IST)</th>
+        <th>Last Entry At (IST)</th>
+        <th>Entries Per Hour</th>
+      </tr>
+    `;
+
+    const bodyHtml = rows.map((row) => {
+      const userName = row?.UserName ?? row?.userName ?? '-';
+      const entryDate = row?.EntryDate ?? row?.entryDate ?? '';
+      const entryCount = row?.EntryCount ?? row?.entryCount ?? 0;
+      const firstEntryAt = row?.FirstEntryAt ?? row?.firstEntryAt ?? '';
+      const lastEntryAt = row?.LastEntryAt ?? row?.lastEntryAt ?? '';
+      const entriesPerHour = row?.EntriesPerHour ?? row?.entriesPerHour ?? null;
+      const formattedEntriesPerHour = entriesPerHour === null || entriesPerHour === undefined || entriesPerHour === ''
+        ? '-'
+        : Number(entriesPerHour).toLocaleString(undefined, { maximumFractionDigits: 4 });
+      return `
+        <tr>
+          <td>${escapeHtml(formatTableCellValue(userName))}</td>
+          <td>${escapeHtml(formatDateTimeInIST(entryDate))}</td>
+          <td>${escapeHtml(formatTableCellValue(entryCount))}</td>
+          <td>${escapeHtml(formatDateTimeInIST(firstEntryAt))}</td>
+          <td>${escapeHtml(formatDateTimeInIST(lastEntryAt))}</td>
+          <td>${escapeHtml(formattedEntriesPerHour)}</td>
+        </tr>
+      `;
     }).join('');
 
     bodyEl.innerHTML = bodyHtml;
@@ -1413,10 +1599,23 @@
       }
       return;
     }
+    if (!/^\d{4}$/.test(jobNo)) {
+      if (elements.jobCardSearchError) {
+        elements.jobCardSearchError.textContent = 'Please enter exactly 4 digits for job card number.';
+      }
+      return;
+    }
     showLoading();
     try {
-      const rows = await fetchJobCardEntries(jobNo);
-      renderJobCardTableInModal(rows, jobNo);
+      const [processRows, userRows] = await Promise.all([
+        fetchJobCardEntries(jobNo, 'process'),
+        fetchJobCardEntries(jobNo, 'user'),
+      ]);
+      state.jobCardSearch.lastJobNo = jobNo;
+      state.jobCardSearch.processRows = processRows;
+      state.jobCardSearch.userRows = userRows;
+      setJobCardViewMode('process');
+      renderJobCardTableInModal(processRows, jobNo);
       openJobCardResultsModal();
     } catch (err) {
       if (elements.jobCardSearchError) {
@@ -1455,6 +1654,20 @@
       closeJobCardResultsModal();
     }
   });
+
+  if (elements.btnJobCardViewProcess) {
+    elements.btnJobCardViewProcess.addEventListener('click', () => {
+      setJobCardViewMode('process');
+      renderJobCardTableInModal(state.jobCardSearch.processRows || [], state.jobCardSearch.lastJobNo || '');
+    });
+  }
+
+  if (elements.btnJobCardViewUser) {
+    elements.btnJobCardViewUser.addEventListener('click', () => {
+      setJobCardViewMode('user');
+      renderUserWiseJobCardTableInModal(state.jobCardSearch.userRows || [], state.jobCardSearch.lastJobNo || '');
+    });
+  }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && elements.dashboardAuditDetailModal && !elements.dashboardAuditDetailModal.classList.contains('hidden')) {
       closeDashboardAuditDetailModal();
