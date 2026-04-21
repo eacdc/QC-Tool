@@ -31,6 +31,7 @@
     },
     jobCardSearch: {
       lastJobNo: '',
+      displayJobNumber: '',
       viewMode: 'process',
       processRows: [],
       userRows: [],
@@ -75,6 +76,7 @@
     btnJobCardResultsDone: document.getElementById('btn-job-card-results-done'),
     btnJobCardViewProcess: document.getElementById('btn-job-card-view-process'),
     btnJobCardViewUser: document.getElementById('btn-job-card-view-user'),
+    btnJobCardExportExcel: document.getElementById('btn-job-card-export-excel'),
     
     // Audit Form
     inspectionForm: document.getElementById('inspection-form'),
@@ -610,9 +612,115 @@
       }),
     });
     if (data.status === true && Array.isArray(data.data)) {
-      return data.data;
+      const jobNumber =
+        data.jobNumber != null && String(data.jobNumber).trim() !== ''
+          ? String(data.jobNumber).trim()
+          : String(jobBookingNo).trim();
+      return { rows: data.data, jobNumber };
     }
     throw new Error(data.error || 'Failed to load job card entries');
+  }
+
+  function jobCardCsvCell(value) {
+    const text = String(value == null ? '' : value);
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  function downloadJobCardCsv(filename, csvBody) {
+    const blob = new Blob([`\ufeff${csvBody}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function sanitizeJobCardFilenamePart(s) {
+    return String(s || 'job-card').replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, '_').slice(0, 80);
+  }
+
+  function updateJobCardExportButtonState() {
+    const btn = elements.btnJobCardExportExcel;
+    if (!btn) return;
+    const mode = state.jobCardSearch.viewMode === 'user' ? 'user' : 'process';
+    const rows =
+      mode === 'user' ? state.jobCardSearch.userRows || [] : state.jobCardSearch.processRows || [];
+    btn.disabled = rows.length === 0;
+  }
+
+  function exportJobCardModalToExcel() {
+    const jobLabel = sanitizeJobCardFilenamePart(
+      state.jobCardSearch.displayJobNumber || state.jobCardSearch.lastJobNo
+    );
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const mode = state.jobCardSearch.viewMode === 'user' ? 'user' : 'process';
+
+    if (mode === 'process') {
+      const rows = state.jobCardSearch.processRows || [];
+      if (!rows.length) {
+        alert('No process-wise data to export.');
+        return;
+      }
+      const headers = [
+        'Process Name',
+        'Parameter Name',
+        'Audit Count',
+        'Number of OK',
+        'Number of Not OK',
+        'Result',
+        'Inspection Start At (IST)',
+        'Inspection End At (IST)',
+      ];
+      const lines = [headers.map(jobCardCsvCell).join(',')];
+      rows.forEach((row) => {
+        const processName = row?.ProcessName ?? row?.processName ?? '';
+        const param = row?.ParameterName ?? row?.parameterName ?? '';
+        const audit =
+          row?.auditCount ??
+          row?.['Audit Count'] ??
+          row?.AuditCount ??
+          row?.auditcount ??
+          '';
+        const ok = row?.['Number of OK'] ?? row?.NumberOfOK ?? row?.OKCount ?? row?.okCount ?? '';
+        const nok = row?.['Number of Not OK'] ?? row?.NumberOfNotOK ?? row?.NotOKCount ?? row?.notOkCount ?? '';
+        const result = row?.result ?? row?.['Result'] ?? row?.Result ?? '';
+        const start = row?.['Inspection Start At'] ?? row?.InspectionStartAt ?? row?.inspectionStartAt ?? '';
+        const end = row?.['Inspection End At'] ?? row?.InspectionEndAt ?? row?.inspectionEndAt ?? '';
+        lines.push([processName, param, audit, ok, nok, result, start, end].map(jobCardCsvCell).join(','));
+      });
+      downloadJobCardCsv(`qc-job-card-${jobLabel}-${dateStr}-process-wise.csv`, lines.join('\r\n'));
+      return;
+    }
+
+    const rows = state.jobCardSearch.userRows || [];
+    if (!rows.length) {
+      alert('No user-wise data to export.');
+      return;
+    }
+    const headers = [
+      'User Name',
+      'Entry Date',
+      'Entry Count',
+      'First Entry At (IST)',
+      'Last Entry At (IST)',
+      'Entries Per Hour',
+    ];
+    const lines = [headers.map(jobCardCsvCell).join(',')];
+    rows.forEach((row) => {
+      const userName = row?.UserName ?? row?.userName ?? '';
+      const entryDate = row?.EntryDate ?? row?.entryDate ?? '';
+      const entryCount = row?.EntryCount ?? row?.entryCount ?? '';
+      const firstEntryAt = row?.FirstEntryAt ?? row?.firstEntryAt ?? '';
+      const lastEntryAt = row?.LastEntryAt ?? row?.lastEntryAt ?? '';
+      const entriesPerHour = row?.EntriesPerHour ?? row?.entriesPerHour ?? '';
+      lines.push(
+        [userName, entryDate, entryCount, firstEntryAt, lastEntryAt, entriesPerHour].map(jobCardCsvCell).join(',')
+      );
+    });
+    downloadJobCardCsv(`qc-job-card-${jobLabel}-${dateStr}-user-wise.csv`, lines.join('\r\n'));
   }
 
   function setJobCardViewMode(viewMode) {
@@ -931,18 +1039,32 @@
     const bodyEl = elements.jobCardModalTableBody;
     if (!titleEl || !emptyEl || !wrapEl || !headEl || !bodyEl) return;
 
-    if (titleEl) titleEl.textContent = jobBookingNo ? `QC entries for ${escapeHtml(jobBookingNo)}` : 'QC entries';
+    if (titleEl) {
+      titleEl.textContent = jobBookingNo
+        ? `QC entries — Job Number: ${jobBookingNo}`
+        : 'QC entries';
+    }
 
     if (!rows || rows.length === 0) {
       emptyEl.classList.remove('hidden');
       wrapEl.classList.add('hidden');
       headEl.innerHTML = '';
       bodyEl.innerHTML = '';
+      updateJobCardExportButtonState();
       return;
     }
 
     emptyEl.classList.add('hidden');
     wrapEl.classList.remove('hidden');
+
+    const getAuditCount = (row) =>
+      row?.auditCount ??
+      row?.['Audit Count'] ??
+      row?.AuditCount ??
+      row?.auditcount ??
+      null;
+    const getResultText = (row) =>
+      row?.result ?? row?.['Result'] ?? row?.Result ?? '';
 
     // Fixed columns as requested for QC job-card search output.
     const headerHtml = `
@@ -950,8 +1072,10 @@
         <th class="jobcard-expand-col"></th>
         <th>Process Name</th>
         <th>Parameter Name</th>
+        <th>Audit Count</th>
         <th>Number of OK</th>
         <th>Number of Not OK</th>
+        <th>Result</th>
         <th>Inspection Start At (IST)</th>
         <th>Inspection End At (IST)</th>
       </tr>
@@ -978,6 +1102,10 @@
 
     groupEntries.forEach(([processName, groupRows], groupIndex) => {
       const groupId = `group-${groupIndex}`;
+      const sumAuditCount = groupRows.reduce((acc, row) => {
+        const v = Number(getAuditCount(row));
+        return acc + (Number.isFinite(v) ? v : 0);
+      }, 0);
       const sumOk = groupRows.reduce((acc, row) => {
         const v = Number(row?.['Number of OK'] ?? row?.NumberOfOK ?? row?.OKCount ?? row?.okCount ?? 0);
         return acc + (Number.isFinite(v) ? v : 0);
@@ -1004,8 +1132,10 @@
           </td>
           <td class="jobcard-group-name">${escapeHtml(processName)}</td>
           <td class="jobcard-group-summary">Summary (${escapeHtml(groupRows.length)} parameter(s))</td>
+          <td class="jobcard-group-summary">${escapeHtml(formatTableCellValue(sumAuditCount))}</td>
           <td class="jobcard-group-summary">${escapeHtml(formatTableCellValue(sumOk))}</td>
           <td class="jobcard-group-summary">${escapeHtml(formatTableCellValue(sumNotOk))}</td>
+          <td class="jobcard-group-summary">—</td>
           <td class="jobcard-group-summary">${escapeHtml(minStartText)}</td>
           <td class="jobcard-group-summary">${escapeHtml(maxEndText)}</td>
         </tr>
@@ -1013,8 +1143,10 @@
 
       groupRows.forEach((row) => {
         const parameterName = row?.ParameterName ?? row?.parameterName ?? '-';
+        const auditCountVal = getAuditCount(row);
         const okCount = row?.['Number of OK'] ?? row?.NumberOfOK ?? row?.OKCount ?? row?.okCount ?? 0;
         const notOkCount = row?.['Number of Not OK'] ?? row?.NumberOfNotOK ?? row?.NotOKCount ?? row?.notOkCount ?? 0;
+        const resultText = getResultText(row);
         const inspectionStartAt = row?.['Inspection Start At'] ?? row?.InspectionStartAt ?? row?.inspectionStartAt ?? '';
         const inspectionEndAt = row?.['Inspection End At'] ?? row?.InspectionEndAt ?? row?.inspectionEndAt ?? '';
 
@@ -1023,8 +1155,10 @@
             <td></td>
             <td>${escapeHtml(processName)}</td>
             <td>${escapeHtml(formatTableCellValue(parameterName))}</td>
+            <td>${escapeHtml(formatTableCellValue(auditCountVal))}</td>
             <td>${escapeHtml(formatTableCellValue(okCount))}</td>
             <td>${escapeHtml(formatTableCellValue(notOkCount))}</td>
+            <td class="jobcard-result-cell">${escapeHtml(formatTableCellValue(resultText))}</td>
             <td>${escapeHtml(formatDateTimeInIST(inspectionStartAt))}</td>
             <td>${escapeHtml(formatDateTimeInIST(inspectionEndAt))}</td>
           </tr>
@@ -1049,6 +1183,7 @@
         btn.setAttribute('aria-expanded', String(nextExpanded));
       });
     });
+    updateJobCardExportButtonState();
   }
 
   function renderUserWiseJobCardTableInModal(rows = [], jobBookingNo = '') {
@@ -1059,13 +1194,16 @@
     const bodyEl = elements.jobCardModalTableBody;
     if (!titleEl || !emptyEl || !wrapEl || !headEl || !bodyEl) return;
 
-    titleEl.textContent = jobBookingNo ? `QC entries for ${escapeHtml(jobBookingNo)} (User-wise)` : 'QC entries (User-wise)';
+    titleEl.textContent = jobBookingNo
+      ? `QC entries — Job Number: ${jobBookingNo} (User-wise)`
+      : 'QC entries (User-wise)';
 
     if (!rows || rows.length === 0) {
       emptyEl.classList.remove('hidden');
       wrapEl.classList.add('hidden');
       headEl.innerHTML = '';
       bodyEl.innerHTML = '';
+      updateJobCardExportButtonState();
       return;
     }
 
@@ -1106,6 +1244,7 @@
     }).join('');
 
     bodyEl.innerHTML = bodyHtml;
+    updateJobCardExportButtonState();
   }
 
   function openJobCardResultsModal() {
@@ -1607,15 +1746,20 @@
     }
     showLoading();
     try {
-      const [processRows, userRows] = await Promise.all([
+      const [processResult, userResult] = await Promise.all([
         fetchJobCardEntries(jobNo, 'process'),
         fetchJobCardEntries(jobNo, 'user'),
       ]);
       state.jobCardSearch.lastJobNo = jobNo;
-      state.jobCardSearch.processRows = processRows;
-      state.jobCardSearch.userRows = userRows;
+      state.jobCardSearch.processRows = processResult.rows;
+      state.jobCardSearch.userRows = userResult.rows;
+      const displayJobNumber =
+        processResult.jobNumber ||
+        userResult.jobNumber ||
+        jobNo;
+      state.jobCardSearch.displayJobNumber = displayJobNumber;
       setJobCardViewMode('process');
-      renderJobCardTableInModal(processRows, jobNo);
+      renderJobCardTableInModal(processResult.rows, displayJobNumber);
       openJobCardResultsModal();
     } catch (err) {
       if (elements.jobCardSearchError) {
@@ -1658,14 +1802,30 @@
   if (elements.btnJobCardViewProcess) {
     elements.btnJobCardViewProcess.addEventListener('click', () => {
       setJobCardViewMode('process');
-      renderJobCardTableInModal(state.jobCardSearch.processRows || [], state.jobCardSearch.lastJobNo || '');
+      renderJobCardTableInModal(
+        state.jobCardSearch.processRows || [],
+        state.jobCardSearch.displayJobNumber || state.jobCardSearch.lastJobNo || ''
+      );
     });
   }
 
   if (elements.btnJobCardViewUser) {
     elements.btnJobCardViewUser.addEventListener('click', () => {
       setJobCardViewMode('user');
-      renderUserWiseJobCardTableInModal(state.jobCardSearch.userRows || [], state.jobCardSearch.lastJobNo || '');
+      renderUserWiseJobCardTableInModal(
+        state.jobCardSearch.userRows || [],
+        state.jobCardSearch.displayJobNumber || state.jobCardSearch.lastJobNo || ''
+      );
+    });
+  }
+
+  if (elements.btnJobCardExportExcel) {
+    elements.btnJobCardExportExcel.addEventListener('click', () => {
+      try {
+        exportJobCardModalToExcel();
+      } catch (e) {
+        alert(e?.message || 'Export failed.');
+      }
     });
   }
   document.addEventListener('keydown', (e) => {

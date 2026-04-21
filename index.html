@@ -242,7 +242,7 @@
 
   <!-- Job Card QC Results Modal -->
   <div id="job-card-results-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="job-card-results-modal-title">
-    <div class="modal-content modal-content-wide">
+    <div class="modal-content modal-content-wide modal-content-job-card">
       <div class="modal-header">
         <h3 id="job-card-results-modal-title">QC entries</h3>
         <button id="btn-job-card-results-close" class="btn-icon small" title="Close">
@@ -252,14 +252,17 @@
         </button>
       </div>
       <div class="modal-body">
-        <div class="job-card-view-toggle" role="tablist" aria-label="QC table view mode">
-          <button type="button" id="btn-job-card-view-process" class="btn-secondary active" aria-pressed="true">Process-wise</button>
-          <button type="button" id="btn-job-card-view-user" class="btn-secondary" aria-pressed="false">User-wise</button>
+        <div class="job-card-modal-toolbar">
+          <div class="job-card-view-toggle" role="tablist" aria-label="QC table view mode">
+            <button type="button" id="btn-job-card-view-process" class="btn-secondary active" aria-pressed="true">Process-wise</button>
+            <button type="button" id="btn-job-card-view-user" class="btn-secondary" aria-pressed="false">User-wise</button>
+          </div>
+          <button type="button" id="btn-job-card-export-excel" class="btn-secondary job-card-export-btn" disabled title="Download current table as CSV (opens in Excel)">Export to Excel</button>
         </div>
         <div id="job-card-modal-empty" class="empty-state empty-state-compact hidden">
           <p>No QC entries found for this job card.</p>
         </div>
-        <div id="job-card-modal-table-wrap" class="table-scroll hidden">
+        <div id="job-card-modal-table-wrap" class="table-scroll job-card-results-table-wrap hidden">
           <table>
             <thead id="job-card-modal-table-head"></thead>
             <tbody id="job-card-modal-table-body"></tbody>
