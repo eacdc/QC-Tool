@@ -702,6 +702,7 @@
     }
     const headers = [
       'User Name',
+      'Process Name',
       'Entry Date',
       'Entry Count',
       'First Entry At (IST)',
@@ -711,13 +712,14 @@
     const lines = [headers.map(jobCardCsvCell).join(',')];
     rows.forEach((row) => {
       const userName = row?.UserName ?? row?.userName ?? '';
+      const processName = row?.ProcessName ?? row?.processName ?? '';
       const entryDate = row?.EntryDate ?? row?.entryDate ?? '';
       const entryCount = row?.EntryCount ?? row?.entryCount ?? '';
       const firstEntryAt = row?.FirstEntryAt ?? row?.firstEntryAt ?? '';
       const lastEntryAt = row?.LastEntryAt ?? row?.lastEntryAt ?? '';
       const entriesPerHour = row?.EntriesPerHour ?? row?.entriesPerHour ?? '';
       lines.push(
-        [userName, entryDate, entryCount, firstEntryAt, lastEntryAt, entriesPerHour].map(jobCardCsvCell).join(',')
+        [userName, processName, entryDate, entryCount, firstEntryAt, lastEntryAt, entriesPerHour].map(jobCardCsvCell).join(',')
       );
     });
     downloadJobCardCsv(`qc-job-card-${jobLabel}-${dateStr}-user-wise.csv`, lines.join('\r\n'));
@@ -1213,6 +1215,7 @@
     headEl.innerHTML = `
       <tr>
         <th>User Name</th>
+        <th>Process Name</th>
         <th>Entry Date</th>
         <th>Entry Count</th>
         <th>First Entry At (IST)</th>
@@ -1223,6 +1226,7 @@
 
     const bodyHtml = rows.map((row) => {
       const userName = row?.UserName ?? row?.userName ?? '-';
+      const processName = row?.ProcessName ?? row?.processName ?? '-';
       const entryDate = row?.EntryDate ?? row?.entryDate ?? '';
       const entryCount = row?.EntryCount ?? row?.entryCount ?? 0;
       const firstEntryAt = row?.FirstEntryAt ?? row?.firstEntryAt ?? '';
@@ -1234,6 +1238,7 @@
       return `
         <tr>
           <td>${escapeHtml(formatTableCellValue(userName))}</td>
+          <td>${escapeHtml(formatTableCellValue(processName))}</td>
           <td>${escapeHtml(formatDateTimeInIST(entryDate))}</td>
           <td>${escapeHtml(formatTableCellValue(entryCount))}</td>
           <td>${escapeHtml(formatDateTimeInIST(firstEntryAt))}</td>
