@@ -3,9 +3,11 @@
 
   // API Configuration: use local backend when testing on localhost, else production
   const isLocal = typeof window !== 'undefined' && (
+    window.location.protocol === 'file:' ||
+    !window.location.hostname ||
     window.location.hostname === 'localhost' ||
     window.location.hostname === '127.0.0.1' ||
-    window.location.protocol === 'file:'
+    window.location.hostname === '::1'
   );
   const API_BASE_URL = isLocal ? 'http://localhost:3001/api' : 'https://cdcapi.onrender.com/api';
 
@@ -621,13 +623,77 @@
     throw new Error(data.error || 'Failed to load job card entries');
   }
 
-  function jobCardCsvCell(value) {
-    const text = String(value == null ? '' : value);
-    return `"${text.replace(/"/g, '""')}"`;
+  const EXPORT_COMPANY_NAME = 'CDC PRINTERS PVT. LTD.';
+  const EXPORT_COMPANY_ADDRESS = '45, RADHANATH CHOWDHURY ROAD, TANGRA INDUSTRIAL ESTATE-II, KOLKATA-700015';
+
+  function escapeXml(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
-  function downloadJobCardCsv(filename, csvBody) {
-    const blob = new Blob([`\ufeff${csvBody}`], { type: 'text/csv;charset=utf-8;' });
+  function excelStringCell(value, styleId) {
+    return '<Cell ss:StyleID="' + styleId + '"><Data ss:Type="String">' + escapeXml(value) + '</Data></Cell>';
+  }
+
+  function buildExcelXml(reportName, headers, dataRows) {
+    const colCount = Math.max((headers || []).length, 1);
+    const mergeAcross = colCount - 1;
+    const headerCells = (headers || []).map(function(label) {
+      return excelStringCell(label, 'ColHeader');
+    }).join('');
+    const bodyXml = (dataRows || []).map(function(row) {
+      const cells = [];
+      for (let i = 0; i < colCount; i++) {
+        cells.push(excelStringCell(row && row[i] != null ? row[i] : '', 'Data'));
+      }
+      return '<Row>' + cells.join('') + '</Row>';
+    }).join('');
+    const columnsXml = (headers || []).map(function() {
+      return '<Column ss:AutoFitWidth="1" ss:Width="90"/>';
+    }).join('');
+    return '<?xml version="1.0"?>\n' +
+      '<?mso-application progid="Excel.Sheet"?>\n' +
+      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"\n' +
+      ' xmlns:o="urn:schemas-microsoft-com:office:office"\n' +
+      ' xmlns:x="urn:schemas-microsoft-com:office:excel"\n' +
+      ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n' +
+      '<Styles>\n' +
+      '<Style ss:ID="Company"><Font ss:Bold="1" ss:Size="14" ss:Color="#000000"/><Alignment ss:Vertical="Center"/></Style>\n' +
+      '<Style ss:ID="Address"><Font ss:Bold="1" ss:Size="10" ss:Color="#000000"/><Alignment ss:Vertical="Center"/></Style>\n' +
+      '<Style ss:ID="Report"><Font ss:Bold="1" ss:Size="12" ss:Color="#000000"/><Alignment ss:Vertical="Center"/></Style>\n' +
+      '<Style ss:ID="ColHeader"><Font ss:Bold="1" ss:Size="10" ss:Color="#000000"/><Alignment ss:WrapText="1" ss:Vertical="Center"/><Borders>' +
+      '<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '</Borders></Style>\n' +
+      '<Style ss:ID="Data"><Alignment ss:Vertical="Center"/><Borders>' +
+      '<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>' +
+      '</Borders></Style>\n' +
+      '</Styles>\n' +
+      '<Worksheet ss:Name="Report">\n' +
+      '<Table>\n' +
+      columnsXml +
+      '<Row ss:Height="20"><Cell ss:MergeAcross="' + mergeAcross + '" ss:StyleID="Company"><Data ss:Type="String">' + escapeXml(EXPORT_COMPANY_NAME) + '</Data></Cell></Row>\n' +
+      '<Row ss:Height="16"><Cell ss:MergeAcross="' + mergeAcross + '" ss:StyleID="Address"><Data ss:Type="String">' + escapeXml(EXPORT_COMPANY_ADDRESS) + '</Data></Cell></Row>\n' +
+      '<Row ss:Height="18"><Cell ss:MergeAcross="' + mergeAcross + '" ss:StyleID="Report"><Data ss:Type="String">' + escapeXml(reportName) + '</Data></Cell></Row>\n' +
+      '<Row ss:Height="24">' + headerCells + '</Row>\n' +
+      bodyXml +
+      '</Table>\n' +
+      '<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><Print><ValidPrinterInfo/></Print></WorksheetOptions>\n' +
+      '</Worksheet>\n' +
+      '</Workbook>';
+  }
+
+  function downloadExcelReport(reportName, headers, dataRows, filename) {
+    const xml = buildExcelXml(reportName, headers, dataRows);
+    const blob = new Blob(['\ufeff' + xml], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -652,9 +718,8 @@
   }
 
   function exportJobCardModalToExcel() {
-    const jobLabel = sanitizeJobCardFilenamePart(
-      state.jobCardSearch.displayJobNumber || state.jobCardSearch.lastJobNo
-    );
+    const jobDisplay = state.jobCardSearch.displayJobNumber || state.jobCardSearch.lastJobNo || '';
+    const jobLabel = sanitizeJobCardFilenamePart(jobDisplay);
     const dateStr = new Date().toISOString().slice(0, 10);
     const mode = state.jobCardSearch.viewMode === 'user' ? 'user' : 'process';
 
@@ -674,8 +739,7 @@
         'Inspection Start At (IST)',
         'Inspection End At (IST)',
       ];
-      const lines = [headers.map(jobCardCsvCell).join(',')];
-      rows.forEach((row) => {
+      const dataRows = rows.map((row) => {
         const processName = row?.ProcessName ?? row?.processName ?? '';
         const param = row?.ParameterName ?? row?.parameterName ?? '';
         const audit =
@@ -689,9 +753,12 @@
         const result = row?.result ?? row?.['Result'] ?? row?.Result ?? '';
         const start = row?.['Inspection Start At'] ?? row?.InspectionStartAt ?? row?.inspectionStartAt ?? '';
         const end = row?.['Inspection End At'] ?? row?.InspectionEndAt ?? row?.inspectionEndAt ?? '';
-        lines.push([processName, param, audit, ok, nok, result, start, end].map(jobCardCsvCell).join(','));
+        return [processName, param, audit, ok, nok, result, start, end];
       });
-      downloadJobCardCsv(`qc-job-card-${jobLabel}-${dateStr}-process-wise.csv`, lines.join('\r\n'));
+      const reportName = jobDisplay
+        ? 'QC ENTRIES — JOB NUMBER: ' + jobDisplay
+        : 'QC ENTRIES';
+      downloadExcelReport(reportName, headers, dataRows, `qc-job-card-${jobLabel}-${dateStr}-process-wise.xls`);
       return;
     }
 
@@ -709,8 +776,7 @@
       'Last Entry At (IST)',
       'Entries Per Hour',
     ];
-    const lines = [headers.map(jobCardCsvCell).join(',')];
-    rows.forEach((row) => {
+    const dataRows = rows.map((row) => {
       const userName = row?.UserName ?? row?.userName ?? '';
       const processName = row?.ProcessName ?? row?.processName ?? '';
       const entryDate = row?.EntryDate ?? row?.entryDate ?? '';
@@ -718,11 +784,12 @@
       const firstEntryAt = row?.FirstEntryAt ?? row?.firstEntryAt ?? '';
       const lastEntryAt = row?.LastEntryAt ?? row?.lastEntryAt ?? '';
       const entriesPerHour = row?.EntriesPerHour ?? row?.entriesPerHour ?? '';
-      lines.push(
-        [userName, processName, entryDate, entryCount, firstEntryAt, lastEntryAt, entriesPerHour].map(jobCardCsvCell).join(',')
-      );
+      return [userName, processName, entryDate, entryCount, firstEntryAt, lastEntryAt, entriesPerHour];
     });
-    downloadJobCardCsv(`qc-job-card-${jobLabel}-${dateStr}-user-wise.csv`, lines.join('\r\n'));
+    const reportName = jobDisplay
+      ? 'QC ENTRIES — JOB NUMBER: ' + jobDisplay + ' (USER-WISE)'
+      : 'QC ENTRIES (USER-WISE)';
+    downloadExcelReport(reportName, headers, dataRows, `qc-job-card-${jobLabel}-${dateStr}-user-wise.xls`);
   }
 
   function setJobCardViewMode(viewMode) {
