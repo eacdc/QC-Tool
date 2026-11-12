@@ -30,6 +30,8 @@
       endDate: null,
       data: [],
       filteredData: [],
+      activeTab: 'inspector',
+      reports: {}, // compliance tab → { key, rows, filteredRows }
     },
     jobCardSearch: {
       lastJobNo: '',
@@ -296,7 +298,10 @@
       endDate: null,
       data: [],
       filteredData: [],
+      activeTab: 'inspector',
+      reports: {},
     };
+    setDashboardTab('inspector', { load: false });
     if (elements.dashboardTableHead) elements.dashboardTableHead.innerHTML = '';
     if (elements.dashboardTableBody) elements.dashboardTableBody.innerHTML = '';
     elements.dashboardTableContainer?.classList.add('hidden');
@@ -1370,6 +1375,9 @@
     } finally {
       hideLoading();
     }
+    if (state.dashboard.activeTab !== 'inspector') {
+      await loadComplianceReport(state.dashboard.activeTab);
+    }
   }
 
   async function handleDashboardModalSubmit(event) {
@@ -1389,6 +1397,286 @@
 
     await loadDashboardData(startDate, endDate);
   }
+
+  // ---- QC compliance reports (dashboard tabs) ---------------------------
+  // Rows come from rpt_QC_MachineProcessCoverage / rpt_QC_OperatorPerformance;
+  // times arrive as 'YYYY-MM-DD HH:mm' IST strings and dates as 'YYYY-MM-DD'.
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function formatReportDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
+    return m ? `${m[3]} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : (value || '');
+  }
+
+  // Time only when it falls on the row's date, else day + month too.
+  function formatReportTime(value, rowDate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})/.exec(value || '');
+    if (!m) return value || '';
+    return value.slice(0, 10) === rowDate ? m[4] : `${m[3]} ${MONTHS[Number(m[2]) - 1]} ${m[4]}`;
+  }
+
+  const DASHBOARD_TABS = {
+    inspector: 'Daily performance overview',
+    coverage: 'Was every running machine + process checked at least once an hour?',
+    operator: 'Did every QC operator do at least 2 checks an hour of their shift?',
+  };
+
+  const COMPLIANCE_REPORTS = {
+    coverage: {
+      endpoint: 'reports/qc-compliance/machine-coverage',
+      reportName: 'QC MACHINE + PROCESS COVERAGE',
+      filePrefix: 'qc-machine-coverage',
+      dateKey: 'ReportDate',
+      mainFilterKey: 'MachineName',
+      mainFilterAll: 'All Machines',
+      badStatus: 'Missed',
+      columns: [
+        { key: 'ReportDate', label: 'Date', format: 'date' },
+        { key: 'MachineName', label: 'Machine' },
+        { key: 'ProcessName', label: 'Process' },
+        { key: 'RunStart', label: 'Run Start', format: 'time' },
+        { key: 'RunEnd', label: 'Run End', format: 'time' },
+        { key: 'RunHours', label: 'Run Hours' },
+        { key: 'ChecksDone', label: 'Checks Done' },
+        { key: 'HoursChecked', label: 'Hours Checked' },
+        { key: 'HoursUnchecked', label: 'Hours Unchecked', drill: (row) => Number(row.HoursUnchecked) > 0 },
+        { key: 'CoveragePct', label: 'Coverage %' },
+        { key: 'LongestGapMin', label: 'Longest Gap Without Check (min)' },
+        { key: 'Status', label: 'Status', format: 'status' },
+      ],
+      summarize(rows) {
+        const missed = rows.filter((r) => r.Status === 'Missed').length;
+        const slots = rows.reduce((sum, r) => sum + Number(r.HoursChecked || 0) + Number(r.HoursUnchecked || 0), 0);
+        const checked = rows.reduce((sum, r) => sum + Number(r.HoursChecked || 0), 0);
+        const pct = slots ? Math.round((checked * 1000) / slots) / 10 : null;
+        return `${rows.length} machine-process days · ${missed} missed · ` +
+          (pct == null ? 'no full run hours' : `${checked} of ${slots} run hours checked (${pct}%)`);
+      },
+      drill: {
+        params: (row) => ({ startDate: row.ReportDate, endDate: row.ReportDate, machineId: row.MachineID, processId: row.ProcessID }),
+        title: (row) => `Unchecked hours: ${row.MachineName || 'Machine'} – ${row.ProcessName || 'Process'} (${formatReportDate(row.ReportDate)})`,
+        columns: [
+          { key: 'SlotStart', label: 'Slot Start', format: 'time' },
+          { key: 'SlotEnd', label: 'Slot End', format: 'time' },
+          { key: 'JobNo', label: 'Job No Running' },
+          { key: 'MachineOperator', label: 'Machine Operator' },
+        ],
+      },
+    },
+    operator: {
+      endpoint: 'reports/qc-compliance/operator-performance',
+      reportName: 'QC OPERATOR PERFORMANCE',
+      filePrefix: 'qc-operator-performance',
+      dateKey: 'ShiftDate',
+      mainFilterKey: 'QCOperator',
+      mainFilterAll: 'All QC Operators',
+      badStatus: 'Below Standard',
+      columns: [
+        { key: 'ShiftDate', label: 'Shift Date', format: 'date' },
+        { key: 'QCOperator', label: 'QC Operator' },
+        { key: 'FirstCheck', label: 'First Check', format: 'time' },
+        { key: 'LastCheck', label: 'Last Check', format: 'time' },
+        { key: 'SpanHours', label: 'Span Hours' },
+        { key: 'ChecksDone', label: 'Checks Done', drill: () => true },
+        { key: 'TargetChecks', label: 'Target (2 × Span)' },
+        { key: 'Shortfall', label: 'Shortfall' },
+        { key: 'ChecksPerHour', label: 'Checks Per Hour' },
+        { key: 'HoursBelow2', label: 'Hours Below 2 Checks' },
+        { key: 'MachinesCovered', label: 'Machines Covered' },
+        { key: 'Status', label: 'Status', format: 'status' },
+      ],
+      summarize(rows) {
+        const below = rows.filter((r) => r.Status === 'Below Standard').length;
+        const checks = rows.reduce((sum, r) => sum + Number(r.ChecksDone || 0), 0);
+        return `${rows.length} shifts · ${below} below standard · ${checks} checks`;
+      },
+      drill: {
+        params: (row) => ({ startDate: row.ShiftDate, endDate: row.ShiftDate, userId: row.UserID }),
+        // A DETAIL call returns every shift of that operator on that date; keep the clicked one.
+        keep: (row) => (detail) => detail.SessionStart === row.FirstCheck,
+        title: (row) => `Checks by ${row.QCOperator || 'QC operator'}: shift of ${formatReportDate(row.ShiftDate)}, ` +
+          `${formatReportTime(row.FirstCheck, row.ShiftDate)} to ${formatReportTime(row.LastCheck, row.ShiftDate)}`,
+        columns: [
+          { key: 'CheckTime', label: 'Time', format: 'time' },
+          { key: 'MachineName', label: 'Machine' },
+          { key: 'ProcessName', label: 'Process' },
+          { key: 'JobNo', label: 'Job No' },
+          { key: 'VoucherNo', label: 'Voucher No' },
+          { key: 'SampleSize', label: 'Sample Size' },
+          { key: 'MinutesSincePrev', label: 'Minutes Since Previous Check' },
+        ],
+      },
+    },
+  };
+
+  function formatReportCell(column, row, dateKey) {
+    const value = row?.[column.key];
+    if (value === null || value === undefined || value === '') return '-';
+    if (column.format === 'date') return formatReportDate(value);
+    if (column.format === 'time') return formatReportTime(value, row[dateKey]);
+    if (typeof value === 'number') return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return String(value);
+  }
+
+  function renderReportRows(headEl, bodyEl, columns, rows, dateKey) {
+    headEl.innerHTML = `<tr>${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr>`;
+    bodyEl.innerHTML = rows.map((row, rowIndex) => {
+      const cells = columns.map((c) => {
+        const text = escapeHtml(formatReportCell(c, row, dateKey));
+        if (c.format === 'status') {
+          const cls = row.Status === 'OK' ? 'ok' : 'bad';
+          return `<td><span class="report-status ${cls}">${text}</span></td>`;
+        }
+        if (c.drill && c.drill(row)) {
+          return `<td><button type="button" class="entry-count-link" data-row-index="${rowIndex}" title="View detail">${text}</button></td>`;
+        }
+        return `<td>${text}</td>`;
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+  }
+
+  function complianceEl(tab, part) {
+    return document.getElementById(`${tab}-${part}`);
+  }
+
+  function populateComplianceFilters(tab) {
+    const cfg = COMPLIANCE_REPORTS[tab];
+    const select = complianceEl(tab, 'filter-main');
+    if (!select) return;
+    const rows = state.dashboard.reports[tab]?.rows || [];
+    const previous = select.value;
+    const names = Array.from(new Set(rows.map((r) => r[cfg.mainFilterKey]).filter(Boolean)))
+      .sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+    select.innerHTML = [`<option value="">${escapeHtml(cfg.mainFilterAll)}</option>`,
+      ...names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)].join('');
+    select.value = names.includes(previous) ? previous : '';
+  }
+
+  function renderComplianceReport(tab) {
+    const cfg = COMPLIANCE_REPORTS[tab];
+    const report = state.dashboard.reports[tab];
+    const main = complianceEl(tab, 'filter-main')?.value || '';
+    const status = complianceEl(tab, 'filter-status')?.value || '';
+    const rows = (report?.rows || []).filter((r) =>
+      (!main || r[cfg.mainFilterKey] === main) && (!status || r.Status === status));
+    if (report) report.filteredRows = rows;
+
+    const summary = complianceEl(tab, 'summary');
+    if (summary) summary.textContent = report ? cfg.summarize(rows) : '';
+    const empty = !rows.length;
+    complianceEl(tab, 'empty-state')?.classList.toggle('hidden', !empty || !report);
+    complianceEl(tab, 'table-container')?.classList.toggle('hidden', empty);
+    const exportBtn = complianceEl(tab, 'export');
+    if (exportBtn) exportBtn.disabled = empty;
+    if (!empty) {
+      renderReportRows(complianceEl(tab, 'table-head'), complianceEl(tab, 'table-body'), cfg.columns, rows, cfg.dateKey);
+    }
+  }
+
+  async function fetchComplianceReport(tab, params) {
+    const data = await apiRequest(COMPLIANCE_REPORTS[tab].endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ database: state.selectedDatabase, ...params }),
+    });
+    if (data.status === true && Array.isArray(data.data)) return data.data;
+    throw new Error(data.error || 'Failed to load report');
+  }
+
+  async function loadComplianceReport(tab) {
+    const { startDate, endDate } = state.dashboard;
+    if (!startDate || !endDate) return;
+    const key = `${state.selectedDatabase}|${startDate}|${endDate}`;
+    if (state.dashboard.reports[tab]?.key === key) {
+      renderComplianceReport(tab);
+      return;
+    }
+    showLoading();
+    try {
+      const rows = await fetchComplianceReport(tab, { startDate, endDate, mode: 'SUMMARY' });
+      state.dashboard.reports[tab] = { key, rows, filteredRows: rows };
+      populateComplianceFilters(tab);
+      renderComplianceReport(tab);
+    } catch (error) {
+      alert('Failed to load report: ' + error.message);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  function setDashboardTab(tab, { load = true } = {}) {
+    if (!DASHBOARD_TABS[tab]) return;
+    state.dashboard.activeTab = tab;
+    document.querySelectorAll('.dashboard-tab').forEach((btn) => {
+      const active = btn.dataset.tab === tab;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+    });
+    Object.keys(DASHBOARD_TABS).forEach((t) => {
+      document.getElementById(`dashboard-panel-${t}`)?.classList.toggle('hidden', t !== tab);
+    });
+    const subtitle = document.getElementById('dashboard-subtitle');
+    if (subtitle) subtitle.textContent = DASHBOARD_TABS[tab];
+    if (tab === 'inspector') return;
+    if (load) {
+      loadComplianceReport(tab);
+    } else {
+      renderComplianceReport(tab);
+    }
+  }
+
+  function exportComplianceReport(tab) {
+    const cfg = COMPLIANCE_REPORTS[tab];
+    const rows = state.dashboard.reports[tab]?.filteredRows || [];
+    if (!rows.length) {
+      alert('No data to export.');
+      return;
+    }
+    const { startDate, endDate } = state.dashboard;
+    const dataRows = rows.map((row) => cfg.columns.map((c) => formatReportCell(c, row, cfg.dateKey)));
+    const reportName = `${cfg.reportName} (${state.selectedDatabase}) — ${formatReportDate(startDate)} TO ${formatReportDate(endDate)}`;
+    downloadExcelReport(reportName, cfg.columns.map((c) => c.label), dataRows,
+      `${cfg.filePrefix}-${state.selectedDatabase}-${startDate}-to-${endDate}.xls`);
+  }
+
+  async function openComplianceDrillDown(tab, row) {
+    const drill = COMPLIANCE_REPORTS[tab].drill;
+    const dateKey = COMPLIANCE_REPORTS[tab].dateKey;
+    showLoading();
+    try {
+      let rows = await fetchComplianceReport(tab, { ...drill.params(row), mode: 'DETAIL' });
+      if (drill.keep) rows = rows.filter(drill.keep(row));
+      const titleEl = elements.dashboardAuditDetailModalTitle;
+      if (titleEl) titleEl.textContent = drill.title(row);
+      const empty = !rows.length;
+      elements.dashboardAuditDetailEmpty?.classList.toggle('hidden', !empty);
+      elements.dashboardAuditDetailTableWrap?.classList.toggle('hidden', empty);
+      if (!empty && elements.dashboardAuditDetailTableHead && elements.dashboardAuditDetailTableBody) {
+        renderReportRows(elements.dashboardAuditDetailTableHead, elements.dashboardAuditDetailTableBody, drill.columns, rows, dateKey);
+      }
+      openDashboardAuditDetailModal();
+    } catch (error) {
+      alert('Failed to load detail: ' + error.message);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  document.querySelectorAll('.dashboard-tab').forEach((btn) => {
+    btn.addEventListener('click', () => setDashboardTab(btn.dataset.tab));
+  });
+
+  Object.keys(COMPLIANCE_REPORTS).forEach((tab) => {
+    complianceEl(tab, 'filter-main')?.addEventListener('change', () => renderComplianceReport(tab));
+    complianceEl(tab, 'filter-status')?.addEventListener('change', () => renderComplianceReport(tab));
+    complianceEl(tab, 'export')?.addEventListener('click', () => exportComplianceReport(tab));
+    complianceEl(tab, 'table-body')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.entry-count-link');
+      if (!btn) return;
+      const row = state.dashboard.reports[tab]?.filteredRows?.[parseInt(btn.dataset.rowIndex, 10)];
+      if (row) openComplianceDrillDown(tab, row);
+    });
+  });
 
   // Fetch inspection template for audit
   async function fetchInspectionTemplate(processId) {
@@ -1423,6 +1711,7 @@
           processId: inspectionData.processId,
           jobBookingJobCardContentsId: inspectionData.jobBookingJobCardContentsId,
           jobBookingId: inspectionData.jobBookingId, // From GetLatestMachineStatusPerMachine
+          sampleSize: inspectionData.sampleSize,
           items: inspectionData.items,
           database: state.selectedDatabase,
         }),
@@ -1444,7 +1733,8 @@
     if (!elements.inspectionFields) return;
     
     elements.inspectionFields.innerHTML = '';
-    
+    elements.inspectionFields.appendChild(createSampleSizeField());
+
     inspectionData.forEach((item, index) => {
       const parameter = item.parameter || item.Parameter || '';
       const fieldType = item.fieldType || item.FieldType || 'Text Field';
@@ -1507,6 +1797,44 @@
       fieldWrapper.appendChild(createRemarksBlock(inputElement, index));
       elements.inspectionFields.appendChild(fieldWrapper);
     });
+  }
+
+  // ---- Sample size (asked on every checklist) ---------------------------
+  const SAMPLE_SIZES = [1, 5, 10, 20];
+
+  function createSampleSizeField() {
+    const fieldWrapper = document.createElement('div');
+    fieldWrapper.className = 'inspection-field sample-size-field';
+
+    const label = document.createElement('label');
+    label.textContent = 'Sample Size';
+    label.setAttribute('for', 'sample-size');
+    const required = document.createElement('span');
+    required.className = 'required-indicator';
+    required.textContent = '*';
+    label.appendChild(required);
+
+    // Not named after a parameter, so FormData lookups by parameter name never see it.
+    const select = document.createElement('select');
+    select.id = 'sample-size';
+    select.required = true;
+    select.className = 'form-select';
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.textContent = '-- Select --';
+    placeholderOption.disabled = true;
+    placeholderOption.selected = true;
+    select.appendChild(placeholderOption);
+    SAMPLE_SIZES.forEach(size => {
+      const option = document.createElement('option');
+      option.value = String(size);
+      option.textContent = String(size);
+      select.appendChild(option);
+    });
+
+    fieldWrapper.appendChild(label);
+    fieldWrapper.appendChild(select);
+    return fieldWrapper;
   }
 
   // ---- Remarks on Not OK -------------------------------------------------
@@ -1877,6 +2205,7 @@
           processId: processInfo.processId,
           jobBookingJobCardContentsId: processInfo.jobBookingJobCardContentsId,
           jobBookingId: processInfo.jobBookingId, // Use actual JobBookingID from process data
+          sampleSize: Number(document.getElementById('sample-size')?.value) || null,
           items: structuredAuditData
         });
         

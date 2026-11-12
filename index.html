@@ -163,37 +163,111 @@
             Back to Processes
           </button>
           <div class="section-header-content">
-            <h2>QC Inspector Dashboard</h2>
-            <p class="subtitle">Daily performance overview</p>
+            <h2>QC Dashboard</h2>
+            <p id="dashboard-subtitle" class="subtitle">Daily performance overview</p>
             <p id="dashboard-date-range" class="dashboard-date-range"></p>
           </div>
         </div>
 
-        <div class="dashboard-filters card">
-          <div class="filter-group">
-            <label for="dashboard-person-filter">QC Person</label>
-            <select id="dashboard-person-filter">
-              <option value="">All QC Persons</option>
-            </select>
-          </div>
-          <button id="btn-dashboard-fetch" class="btn-primary small">Fetch</button>
+        <div class="dashboard-tabs" role="tablist" aria-label="QC reports">
+          <button type="button" class="dashboard-tab active" data-tab="inspector" role="tab" aria-selected="true">Inspector Summary</button>
+          <button type="button" class="dashboard-tab" data-tab="coverage" role="tab" aria-selected="false">Machine Coverage</button>
+          <button type="button" class="dashboard-tab" data-tab="operator" role="tab" aria-selected="false">Operator Performance</button>
         </div>
 
-        <div id="dashboard-empty-state" class="empty-state hidden">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-          <h3>No Data</h3>
-          <p>Adjust your filters or pick a different date range.</p>
+        <div id="dashboard-panel-inspector" class="dashboard-panel">
+          <div class="dashboard-filters card">
+            <div class="filter-group">
+              <label for="dashboard-person-filter">QC Person</label>
+              <select id="dashboard-person-filter">
+                <option value="">All QC Persons</option>
+              </select>
+            </div>
+            <button id="btn-dashboard-fetch" class="btn-primary small">Fetch</button>
+          </div>
+
+          <div id="dashboard-empty-state" class="empty-state hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            <h3>No Data</h3>
+            <p>Adjust your filters or pick a different date range.</p>
+          </div>
+
+          <div id="dashboard-table-container" class="dashboard-table card hidden">
+            <div class="table-scroll">
+              <table>
+                <thead id="dashboard-table-head"></thead>
+                <tbody id="dashboard-table-body"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
-        <div id="dashboard-table-container" class="dashboard-table card hidden">
-          <div class="table-scroll">
-            <table>
-              <thead id="dashboard-table-head"></thead>
-              <tbody id="dashboard-table-body"></tbody>
-            </table>
+        <div id="dashboard-panel-coverage" class="dashboard-panel hidden">
+          <div class="dashboard-filters card">
+            <div class="filter-group">
+              <label for="coverage-filter-main">Machine</label>
+              <select id="coverage-filter-main">
+                <option value="">All Machines</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="coverage-filter-status">Status</label>
+              <select id="coverage-filter-status">
+                <option value="">All</option>
+                <option value="Missed">Missed</option>
+                <option value="OK">OK</option>
+              </select>
+            </div>
+            <button type="button" id="coverage-export" class="btn-secondary small">Export to Excel</button>
           </div>
+          <p id="coverage-summary" class="report-summary"></p>
+          <div id="coverage-empty-state" class="empty-state empty-state-compact hidden">
+            <p>No machine ran a process with a QC checklist in this date range.</p>
+          </div>
+          <div id="coverage-table-container" class="dashboard-table card hidden">
+            <div class="table-scroll">
+              <table>
+                <thead id="coverage-table-head"></thead>
+                <tbody id="coverage-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <p class="report-note">Each run is cut into 1-hour slots from when it started; a slot needs at least 1 QC check. A final slot under 30 minutes, and the hour still in progress, are not counted. Tap Hours Unchecked to see the missed hours.</p>
+        </div>
+
+        <div id="dashboard-panel-operator" class="dashboard-panel hidden">
+          <div class="dashboard-filters card">
+            <div class="filter-group">
+              <label for="operator-filter-main">QC Operator</label>
+              <select id="operator-filter-main">
+                <option value="">All QC Operators</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="operator-filter-status">Status</label>
+              <select id="operator-filter-status">
+                <option value="">All</option>
+                <option value="Below Standard">Below Standard</option>
+                <option value="OK">OK</option>
+              </select>
+            </div>
+            <button type="button" id="operator-export" class="btn-secondary small">Export to Excel</button>
+          </div>
+          <p id="operator-summary" class="report-summary"></p>
+          <div id="operator-empty-state" class="empty-state empty-state-compact hidden">
+            <p>No QC checks in this date range.</p>
+          </div>
+          <div id="operator-table-container" class="dashboard-table card hidden">
+            <div class="table-scroll">
+              <table>
+                <thead id="operator-table-head"></thead>
+                <tbody id="operator-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <p class="report-note">A shift runs from an operator's first check to their last; a break of more than 4 hours starts a new shift. The standard is 2 checks in every hour of the shift. Tap Checks Done to see each check.</p>
         </div>
       </section>
     </main>
