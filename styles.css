@@ -977,6 +977,84 @@ select:focus {
   border-color: rgba(34, 197, 94, 0.3);
 }
 
+/* Remarks on Not OK */
+.remarks-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.75rem 0.75rem 0.75rem 1rem;
+  border-left: 3px solid #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+  border-radius: 0 8px 8px 0;
+}
+
+.remarks-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.remarks-input {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.btn-mic {
+  flex: 0 0 auto;
+  width: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-mic svg {
+  width: 24px;
+  height: 24px;
+}
+
+.btn-mic:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.btn-mic.recording {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.btn-mic.busy,
+.btn-mic:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+.remarks-status {
+  min-height: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.remarks-status.error {
+  color: #f87171;
+}
+
 .form-actions-audit {
   display: flex;
   gap: 1rem;

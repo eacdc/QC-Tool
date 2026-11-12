@@ -1504,8 +1504,251 @@
       
       fieldWrapper.appendChild(label);
       fieldWrapper.appendChild(inputElement);
+      fieldWrapper.appendChild(createRemarksBlock(inputElement, index));
       elements.inspectionFields.appendChild(fieldWrapper);
     });
+  }
+
+  // ---- Remarks on Not OK -------------------------------------------------
+  // Templates spell the negative many ways ("NOT OK", "Not Ok", "NOTOK", "NOK", "Fail").
+  const NOT_OK_RESULTS = new Set(['NOTOK', 'NOK', 'NOT', 'FAIL']);
+  const MAX_RECORDING_MS = 60000;
+
+  function isNotOkResult(value) {
+    return NOT_OK_RESULTS.has(String(value ?? '').toUpperCase().replace(/[^A-Z]/g, ''));
+  }
+
+  function getRemarksInput(index) {
+    return document.getElementById(`remarks-${index}`);
+  }
+
+  // Hidden until the field is set to Not OK; then a remark (typed or spoken) is compulsory.
+  function createRemarksBlock(fieldInput, index) {
+    const block = document.createElement('div');
+    block.className = 'remarks-block hidden';
+
+    const label = document.createElement('label');
+    label.setAttribute('for', `remarks-${index}`);
+    label.textContent = 'Remarks — why Not OK?';
+    const required = document.createElement('span');
+    required.className = 'required-indicator';
+    required.textContent = '*';
+    label.appendChild(required);
+
+    const row = document.createElement('div');
+    row.className = 'remarks-row';
+
+    const textarea = document.createElement('textarea');
+    textarea.id = `remarks-${index}`;
+    textarea.className = 'form-input remarks-input';
+    textarea.rows = 3;
+    textarea.maxLength = 1000;
+    textarea.placeholder = 'Type, or tap the mic and speak in any language';
+
+    const micBtn = document.createElement('button');
+    micBtn.type = 'button';
+    micBtn.className = 'btn-mic';
+    micBtn.title = 'Speak remark';
+    micBtn.setAttribute('aria-label', 'Speak remark');
+    micBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>';
+
+    const status = document.createElement('div');
+    status.className = 'remarks-status';
+
+    row.appendChild(textarea);
+    row.appendChild(micBtn);
+    block.appendChild(label);
+    block.appendChild(row);
+    block.appendChild(status);
+
+    const syncVisibility = () => {
+      const notOk = isNotOkResult(fieldInput.value);
+      block.classList.toggle('hidden', !notOk);
+      textarea.required = notOk;
+      if (!notOk) stopRecording(micBtn);
+    };
+    fieldInput.addEventListener('change', syncVisibility);
+    fieldInput.addEventListener('input', syncVisibility);
+
+    micBtn.addEventListener('click', () => {
+      if (micBtn._recorder) {
+        stopRecording(micBtn);
+      } else {
+        startRecording(micBtn, textarea, status);
+      }
+    });
+
+    return block;
+  }
+
+  function setRemarksStatus(status, message, isError = false) {
+    status.textContent = message || '';
+    status.classList.toggle('error', isError);
+  }
+
+  async function startRecording(micBtn, textarea, status) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setRemarksStatus(status, 'Voice input is not supported on this browser. Please type the remark.', true);
+      return;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      setRemarksStatus(status, 'Microphone access was blocked. Allow the microphone, or type the remark.', true);
+      return;
+    }
+
+    const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const chunks = [];
+    const startedAt = Date.now();
+
+    recorder.addEventListener('dataavailable', (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    });
+
+    recorder.addEventListener('stop', async () => {
+      stream.getTracks().forEach(track => track.stop());
+      clearInterval(micBtn._timer);
+      micBtn._recorder = null;
+      micBtn.classList.remove('recording');
+
+      if (micBtn._discard) return;
+      const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' });
+      if (blob.size === 0 || Date.now() - startedAt < 700) {
+        setRemarksStatus(status, 'Recording was too short. Tap the mic and speak again.', true);
+        return;
+      }
+
+      micBtn.disabled = true;
+      micBtn.classList.add('busy');
+      textarea.dataset.converting = '1';
+      setRemarksStatus(status, 'Converting to English…');
+      try {
+        const english = await transcribeRemark(blob);
+        const existing = textarea.value.trim();
+        // Typed text that was never converted still gets converted on submit.
+        const allEnglish = !existing || existing === textarea.dataset.english;
+        textarea.value = existing ? `${existing} ${english}` : english;
+        if (allEnglish) textarea.dataset.english = textarea.value;
+        setRemarksStatus(status, 'Converted to English. You can edit it before submitting.');
+      } catch (error) {
+        setRemarksStatus(status, error.message || 'Could not convert the recording. Please try again or type.', true);
+      } finally {
+        delete textarea.dataset.converting;
+        micBtn.disabled = false;
+        micBtn.classList.remove('busy');
+      }
+    });
+
+    micBtn._recorder = recorder;
+    micBtn.classList.add('recording');
+    recorder.start();
+
+    const tick = () => {
+      const seconds = Math.floor((Date.now() - startedAt) / 1000);
+      setRemarksStatus(status, `Recording… ${seconds}s — tap the mic again to stop`);
+      if (Date.now() - startedAt >= MAX_RECORDING_MS) stopRecording(micBtn);
+    };
+    tick();
+    micBtn._timer = setInterval(tick, 500);
+  }
+
+  function stopRecording(micBtn) {
+    const recorder = micBtn?._recorder;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  }
+
+  // Leaving the audit: release the microphone and drop anything still recording.
+  function discardRecordings() {
+    elements.inspectionFields?.querySelectorAll('.btn-mic').forEach((micBtn) => {
+      micBtn._discard = true;
+      stopRecording(micBtn);
+    });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function transcribeRemark(blob) {
+    const data = await apiRequest('qc/remarks/transcribe', {
+      method: 'POST',
+      body: JSON.stringify({
+        audioBlob: await blobToBase64(blob),
+        audioMimeType: blob.type,
+      }),
+    });
+    if (data.status !== true || !data.english) {
+      throw new Error(data.error || 'Could not convert the recording to English.');
+    }
+    return data.english;
+  }
+
+  async function translateRemark(text) {
+    const data = await apiRequest('qc/remarks/translate', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+    if (data.status !== true || !data.english) {
+      throw new Error(data.error || 'Could not convert the remark to English.');
+    }
+    return data.english;
+  }
+
+  // Before submit: every Not OK field has a remark, and every remark is in English.
+  // Returns false if submission should stop.
+  async function prepareRemarks() {
+    const pending = [];
+    for (const [index, item] of state.currentInspectionTemplate.entries()) {
+      const fieldInput = document.getElementById(`field-${index}`);
+      if (!isNotOkResult(fieldInput?.value)) continue;
+
+      const textarea = getRemarksInput(index);
+      const parameter = item.parameter || item.Parameter || '';
+      const micBtn = textarea?.parentElement?.querySelector('.btn-mic');
+      if (micBtn?._recorder || textarea?.dataset.converting) {
+        alert(`Please finish the voice remark for "${parameter}" first.`);
+        return false;
+      }
+      if (!textarea || !textarea.value.trim()) {
+        alert(`Remarks are required for "${parameter}" because it is marked Not OK.`);
+        textarea?.focus();
+        return false;
+      }
+      if (textarea.value.trim() !== textarea.dataset.english) {
+        pending.push({ textarea, parameter });
+      }
+    }
+
+    if (pending.length === 0) return true;
+
+    showLoading();
+    const failed = [];
+    await Promise.all(pending.map(async ({ textarea, parameter }) => {
+      try {
+        textarea.value = await translateRemark(textarea.value.trim());
+        textarea.dataset.english = textarea.value;
+      } catch (error) {
+        console.error('Remark translation failed:', error);
+        failed.push(parameter);
+      }
+    }));
+    hideLoading();
+
+    if (failed.length > 0) {
+      return confirm(
+        `Could not convert these remarks to English:\n${failed.join('\n')}\n\nSave them as typed?`
+      );
+    }
+    return true;
   }
 
   // Handle Start Audit button click
@@ -1570,7 +1813,9 @@
   if (elements.inspectionForm) {
     elements.inspectionForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      
+
+      if (!(await prepareRemarks())) return;
+
       // Collect form data
       const formData = new FormData(elements.inspectionForm);
       
@@ -1597,6 +1842,10 @@
         // Add defaultValue for Combo Field types (only when options exist)
         if (hasOptions) {
           dataItem.defaultValue = options.join('|');
+        }
+
+        if (isNotOkResult(result)) {
+          dataItem.remarks = getRemarksInput(index)?.value.trim() || '';
         }
         
         structuredAuditData.push(dataItem);
@@ -1670,6 +1919,7 @@
 
   // Show running processes section
   async function showRunningProcessesSection() {
+    discardRecordings();
     closeDashboardModal();
     showSection(elements.runningProcessesSection, 'running-processes');
     showLoading();
