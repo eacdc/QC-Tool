@@ -1436,13 +1436,14 @@
         { key: 'ProcessName', label: 'Process' },
         { key: 'RunStart', label: 'Run Start', format: 'time' },
         { key: 'RunEnd', label: 'Run End', format: 'time' },
-        { key: 'RunHours', label: 'Run Hours' },
+        { key: 'RunHours', label: 'Run Hours (This Date)' },
         { key: 'ChecksDone', label: 'Checks Done' },
         { key: 'HoursChecked', label: 'Hours Checked' },
         { key: 'HoursUnchecked', label: 'Hours Unchecked', drill: (row) => Number(row.HoursUnchecked) > 0 },
         { key: 'CoveragePct', label: 'Coverage %' },
         { key: 'LongestGapMin', label: 'Longest Gap Without Check (min)' },
         { key: 'Status', label: 'Status', format: 'status' },
+        { key: 'LongEntries', label: 'ERP Entry Over 12 h', format: 'warning' },
       ],
       summarize(rows) {
         const missed = rows.filter((r) => r.Status === 'Missed').length;
@@ -1526,6 +1527,9 @@
         if (c.format === 'status') {
           const cls = row.Status === 'OK' ? 'ok' : 'bad';
           return `<td><span class="report-status ${cls}">${text}</span></td>`;
+        }
+        if (c.format === 'warning' && text !== '-') {
+          return `<td class="report-warning">${text}</td>`;
         }
         if (c.drill && c.drill(row)) {
           return `<td><button type="button" class="entry-count-link" data-row-index="${rowIndex}" title="View detail">${text}</button></td>`;

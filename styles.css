@@ -937,6 +937,11 @@ select:focus {
   color: #f87171;
 }
 
+.report-warning {
+  color: #fbbf24;
+  min-width: 14rem;
+}
+
 /* Audit Form Section */
 #audit-form-section {
   width: 100%;
