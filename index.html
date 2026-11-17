@@ -377,6 +377,31 @@
     </div>
   </div>
 
+  <!-- One QC check: each parameter's result, remark and photos (opened from the checks list) -->
+  <div id="check-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="check-detail-modal-title">
+    <div class="modal-content modal-content-wide">
+      <div class="modal-header">
+        <h3 id="check-detail-modal-title">Check detail</h3>
+        <button type="button" id="btn-check-detail-close" class="btn-icon small" title="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Parameter</th><th>Result</th><th>Remarks</th><th>Photos</th></tr></thead>
+            <tbody id="check-detail-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="btn-check-detail-done" class="btn-primary">Done</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js" defer></script>
 </body>
 </html>

@@ -1505,12 +1505,23 @@
           { key: 'VoucherNo', label: 'Voucher No' },
           { key: 'SampleSize', label: 'Sample Size' },
           { key: 'MinutesSincePrev', label: 'Minutes Since Previous Check' },
+          { key: 'NotOkCount', label: 'Not OK / Photos', format: 'checkDetail' },
         ],
       },
     },
   };
 
+  function formatCheckSummary(row) {
+    const notOk = Number(row?.NotOkCount) || 0;
+    const photos = Number(row?.PhotoCount) || 0;
+    const parts = [notOk ? `${notOk} Not OK` : 'All OK'];
+    if (photos) parts.push(`${photos} photo${photos === 1 ? '' : 's'}`);
+    return parts.join(' · ');
+  }
+
   function formatReportCell(column, row, dateKey) {
+    // TransactionID arrives once 003 is re-run after 004; before that the counts are unknown.
+    if (column.format === 'checkDetail') return row?.TransactionID ? formatCheckSummary(row) : '-';
     const value = row?.[column.key];
     if (value === null || value === undefined || value === '') return '-';
     if (column.format === 'date') return formatReportDate(value);
@@ -1530,6 +1541,10 @@
         }
         if (c.format === 'warning' && text !== '-') {
           return `<td class="report-warning">${text}</td>`;
+        }
+        if (c.format === 'checkDetail' && row.TransactionID) {
+          const cls = Number(row.NotOkCount) ? ' check-detail-link--bad' : '';
+          return `<td><button type="button" class="entry-count-link check-detail-link${cls}" data-row-index="${rowIndex}" title="View each parameter, remark and photo">${text}</button></td>`;
         }
         if (c.drill && c.drill(row)) {
           return `<td><button type="button" class="entry-count-link" data-row-index="${rowIndex}" title="View detail">${text}</button></td>`;
@@ -1650,6 +1665,7 @@
     try {
       let rows = await fetchComplianceReport(tab, { ...drill.params(row), mode: 'DETAIL' });
       if (drill.keep) rows = rows.filter(drill.keep(row));
+      state.dashboard.drillRows = rows;
       const titleEl = elements.dashboardAuditDetailModalTitle;
       if (titleEl) titleEl.textContent = drill.title(row);
       const empty = !rows.length;
@@ -1668,6 +1684,61 @@
 
   document.querySelectorAll('.dashboard-tab').forEach((btn) => {
     btn.addEventListener('click', () => setDashboardTab(btn.dataset.tab));
+  });
+
+  // ---- One check's parameters, remarks and photos -----------------------
+  const checkDetailModal = document.getElementById('check-detail-modal');
+
+  function closeCheckDetailModal() {
+    checkDetailModal?.classList.add('hidden');
+  }
+
+  function renderCheckDetailPhotos(photos) {
+    if (!photos?.length) return '-';
+    return `<div class="check-photos">${photos.map((url, i) =>
+      `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" title="Open photo ${i + 1}">` +
+      `<img src="${escapeHtml(url)}" alt="Photo ${i + 1}" loading="lazy"></a>`).join('')}</div>`;
+  }
+
+  async function openCheckDetail(check) {
+    showLoading();
+    try {
+      const data = await apiRequest('reports/qc-check-detail', {
+        method: 'POST',
+        body: JSON.stringify({ database: state.selectedDatabase, transactionId: check.TransactionID }),
+      });
+      if (data.status !== true || !Array.isArray(data.data)) throw new Error(data.error || 'Failed to load check');
+      const title = document.getElementById('check-detail-modal-title');
+      if (title) {
+        title.textContent = [check.VoucherNo, check.MachineName, check.ProcessName, check.JobNo,
+          formatReportTime(check.CheckTime, check.ShiftDate)].filter(Boolean).join(' · ');
+      }
+      const body = document.getElementById('check-detail-table-body');
+      if (body) {
+        body.innerHTML = data.data.map((p) => `<tr>
+          <td>${escapeHtml(p.ParameterName || '')}</td>
+          <td>${p.NotOk ? `<span class="report-status bad">${escapeHtml(p.Result)}</span>` : escapeHtml(p.Result ?? '-')}</td>
+          <td class="check-remarks">${escapeHtml(p.Remarks || '-')}</td>
+          <td>${renderCheckDetailPhotos(p.photos)}</td>
+        </tr>`).join('');
+      }
+      checkDetailModal?.classList.remove('hidden');
+    } catch (error) {
+      alert('Failed to load check: ' + error.message);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  elements.dashboardAuditDetailTableBody?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.check-detail-link');
+    const check = btn && state.dashboard.drillRows?.[parseInt(btn.dataset.rowIndex, 10)];
+    if (check) openCheckDetail(check);
+  });
+  document.getElementById('btn-check-detail-close')?.addEventListener('click', closeCheckDetailModal);
+  document.getElementById('btn-check-detail-done')?.addEventListener('click', closeCheckDetailModal);
+  checkDetailModal?.addEventListener('click', (e) => {
+    if (e.target === checkDetailModal) closeCheckDetailModal();
   });
 
   Object.keys(COMPLIANCE_REPORTS).forEach((tab) => {
@@ -1747,21 +1818,29 @@
       const fieldWrapper = document.createElement('div');
       fieldWrapper.className = 'inspection-field';
       
-      const label = document.createElement('label');
-      label.textContent = parameter;
-      label.setAttribute('for', `field-${index}`);
-      
-      const required = document.createElement('span');
-      required.className = 'required-indicator';
-      required.textContent = '*';
-      label.appendChild(required);
-      
-      let inputElement;
-      
       // Combo Field with non-empty options → dropdown; otherwise (Text Field or Combo with empty options) → manual text entry
       const hasOptions = options && Array.isArray(options) && options.length > 0;
       const useDropdown = (fieldType === 'Combo Field' || fieldType === 'Combo field') && hasOptions;
-      
+      const optional = isOptionalParameter(parameter, useDropdown);
+
+      const label = document.createElement('label');
+      label.textContent = parameter;
+      label.setAttribute('for', `field-${index}`);
+
+      if (optional) {
+        const hint = document.createElement('span');
+        hint.className = 'optional-indicator';
+        hint.textContent = '(optional)';
+        label.appendChild(hint);
+      } else {
+        const required = document.createElement('span');
+        required.className = 'required-indicator';
+        required.textContent = '*';
+        label.appendChild(required);
+      }
+
+      let inputElement;
+
       if (useDropdown) {
         // Create dropdown/select field
         inputElement = document.createElement('select');
@@ -1791,7 +1870,7 @@
         inputElement.type = 'text';
         inputElement.id = `field-${index}`;
         inputElement.name = parameter;
-        inputElement.required = true;
+        inputElement.required = !optional;
         inputElement.className = 'form-input';
         inputElement.placeholder = `Enter ${parameter}`;
       }
@@ -1799,8 +1878,15 @@
       fieldWrapper.appendChild(label);
       fieldWrapper.appendChild(inputElement);
       fieldWrapper.appendChild(createRemarksBlock(inputElement, index));
+      fieldWrapper.appendChild(createPhotosBlock(index));
       elements.inspectionFields.appendChild(fieldWrapper);
     });
+  }
+
+  // The lamination Dyne reading is a typed value, named differently per process
+  // ("Dyne Value", "DYNE TEST (VALU)", "DYNE VALUE"); its OK / Not OK dropdown stays compulsory.
+  function isOptionalParameter(parameter, useDropdown) {
+    return !useDropdown && /dyne/i.test(parameter);
   }
 
   // ---- Sample size (asked on every checklist) ---------------------------
@@ -2035,6 +2121,117 @@
     return data.english;
   }
 
+  // ---- Photos on any parameter (optional, up to 3) ----------------------
+  // Each photo is shrunk to a JPEG on the phone and uploaded to R2 as soon as it is picked;
+  // only the returned keys go with the inspection.
+  const MAX_PHOTOS = 3;
+  const PHOTO_MAX_SIDE = 1600;
+  const PHOTO_QUALITY = 0.8;
+
+  function getPhotosBlock(index) {
+    return document.getElementById(`photos-${index}`);
+  }
+
+  function createPhotosBlock(index) {
+    const block = document.createElement('div');
+    block.className = 'photos-block';
+    block.id = `photos-${index}`;
+    block._photos = [];
+
+    const picker = document.createElement('input');
+    picker.type = 'file';
+    picker.accept = 'image/*';
+    picker.className = 'hidden';
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn-add-photo';
+    addBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M9 3 7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.17L15 3H9zm3 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg><span></span>';
+
+    const thumbs = document.createElement('div');
+    thumbs.className = 'photo-thumbs';
+
+    const status = document.createElement('div');
+    status.className = 'remarks-status';
+
+    const refresh = () => {
+      addBtn.querySelector('span').textContent = `Add photo (${block._photos.length}/${MAX_PHOTOS})`;
+      addBtn.disabled = block._photos.length >= MAX_PHOTOS;
+    };
+
+    addBtn.addEventListener('click', () => picker.click());
+    picker.addEventListener('change', async () => {
+      const file = picker.files?.[0];
+      picker.value = '';
+      if (!file || block._photos.length >= MAX_PHOTOS) return;
+
+      const photo = { key: null, uploading: true, previewUrl: URL.createObjectURL(file) };
+      block._photos.push(photo);
+      const thumb = document.createElement('div');
+      thumb.className = 'photo-thumb uploading';
+      thumb.innerHTML = `<img alt="Photo"><button type="button" class="photo-remove" title="Remove photo" aria-label="Remove photo">×</button>`;
+      thumb.querySelector('img').src = photo.previewUrl;
+      thumb.querySelector('.photo-remove').addEventListener('click', () => {
+        block._photos = block._photos.filter((p) => p !== photo);
+        URL.revokeObjectURL(photo.previewUrl);
+        thumb.remove();
+        refresh();
+      });
+      thumbs.appendChild(thumb);
+      refresh();
+      setRemarksStatus(status, 'Uploading photo…');
+
+      try {
+        photo.key = await uploadPhoto(await shrinkPhoto(file));
+        thumb.classList.remove('uploading');
+        setRemarksStatus(status, '');
+      } catch (error) {
+        block._photos = block._photos.filter((p) => p !== photo);
+        URL.revokeObjectURL(photo.previewUrl);
+        thumb.remove();
+        setRemarksStatus(status, error.message || 'Could not upload the photo. Please try again.', true);
+      } finally {
+        photo.uploading = false;
+        refresh();
+      }
+    });
+
+    block.appendChild(picker);
+    block.appendChild(addBtn);
+    block.appendChild(thumbs);
+    block.appendChild(status);
+    refresh();
+    return block;
+  }
+
+  // Any phone photo → JPEG no larger than PHOTO_MAX_SIDE, keeping its orientation.
+  async function shrinkPhoto(file) {
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      throw new Error('This photo format cannot be read. Please take the photo with the camera.');
+    }
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', PHOTO_QUALITY));
+    if (!blob) throw new Error('Could not prepare the photo. Please try again.');
+    return blob;
+  }
+
+  async function uploadPhoto(blob) {
+    const data = await apiRequest('qc/photos/upload', {
+      method: 'POST',
+      body: JSON.stringify({ database: state.selectedDatabase, image: await blobToBase64(blob) }),
+    });
+    if (data.status !== true || !data.key) throw new Error(data.error || 'Could not upload the photo.');
+    return data.key;
+  }
+
   // Before submit: every Not OK field has a remark, and every remark is in English.
   // Returns false if submission should stop.
   async function prepareRemarks() {
@@ -2146,6 +2343,13 @@
     elements.inspectionForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
+      const uploading = state.currentInspectionTemplate.some((_, index) =>
+        getPhotosBlock(index)?._photos.some((p) => p.uploading));
+      if (uploading) {
+        alert('Please wait until the photos finish uploading.');
+        return;
+      }
+
       if (!(await prepareRemarks())) return;
 
       // Collect form data
@@ -2179,7 +2383,12 @@
         if (isNotOkResult(result)) {
           dataItem.remarks = getRemarksInput(index)?.value.trim() || '';
         }
-        
+
+        const photoKeys = (getPhotosBlock(index)?._photos || []).map((p) => p.key).filter(Boolean);
+        if (photoKeys.length > 0) {
+          dataItem.images = photoKeys;
+        }
+
         structuredAuditData.push(dataItem);
       });
       
@@ -2484,7 +2693,11 @@
     });
   }
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && elements.dashboardAuditDetailModal && !elements.dashboardAuditDetailModal.classList.contains('hidden')) {
+    if (e.key !== 'Escape') return;
+    const checkDetail = document.getElementById('check-detail-modal');
+    if (checkDetail && !checkDetail.classList.contains('hidden')) {
+      checkDetail.classList.add('hidden');
+    } else if (elements.dashboardAuditDetailModal && !elements.dashboardAuditDetailModal.classList.contains('hidden')) {
       closeDashboardAuditDetailModal();
     }
   });
