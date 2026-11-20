@@ -106,6 +106,7 @@
     dashboardTableBody: document.getElementById('dashboard-table-body'),
     dashboardPersonFilter: document.getElementById('dashboard-person-filter'),
     dashboardFetchBtn: document.getElementById('btn-dashboard-fetch'),
+    dashboardExportBtn: document.getElementById('btn-dashboard-export'),
     dashboardEmptyState: document.getElementById('dashboard-empty-state'),
     dashboardDateRange: document.getElementById('dashboard-date-range'),
     btnBackToProcessesFromDashboard: document.getElementById('btn-back-to-processes-from-dashboard'),
@@ -643,6 +644,24 @@
     return '<Cell ss:StyleID="' + styleId + '"><Data ss:Type="String">' + escapeXml(value) + '</Data></Cell>';
   }
 
+  // A row value is a string, or { type: 'Number' | 'Date' | 'Time', value } so Excel can sort and filter it.
+  function excelCell(value) {
+    if (value && typeof value === 'object' && value.type) {
+      if (value.value == null || value.value === '') return excelStringCell('', 'Data');
+      if (value.type === 'Number') {
+        return '<Cell ss:StyleID="Data"><Data ss:Type="Number">' + escapeXml(value.value) + '</Data></Cell>';
+      }
+      if (value.type === 'Time') {
+        // Excel keeps a time as a fraction of a day; a 1899-12-31 DateTime lands 10 days off.
+        const [h, m, s] = String(value.value).split(':').map(Number);
+        const fraction = ((h * 60 + m) * 60 + (s || 0)) / 86400;
+        return '<Cell ss:StyleID="TimeCell"><Data ss:Type="Number">' + fraction + '</Data></Cell>';
+      }
+      return '<Cell ss:StyleID="DateCell"><Data ss:Type="DateTime">' + escapeXml(value.value + 'T00:00:00.000') + '</Data></Cell>';
+    }
+    return excelStringCell(value != null ? value : '', 'Data');
+  }
+
   function buildExcelXml(reportName, headers, dataRows) {
     const colCount = Math.max((headers || []).length, 1);
     const mergeAcross = colCount - 1;
@@ -652,7 +671,7 @@
     const bodyXml = (dataRows || []).map(function(row) {
       const cells = [];
       for (let i = 0; i < colCount; i++) {
-        cells.push(excelStringCell(row && row[i] != null ? row[i] : '', 'Data'));
+        cells.push(excelCell(row ? row[i] : ''));
       }
       return '<Row>' + cells.join('') + '</Row>';
     }).join('');
@@ -681,6 +700,8 @@
       '<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>' +
       '<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>' +
       '</Borders></Style>\n' +
+      '<Style ss:ID="DateCell" ss:Parent="Data"><NumberFormat ss:Format="dd\\-mmm\\-yyyy"/></Style>\n' +
+      '<Style ss:ID="TimeCell" ss:Parent="Data"><NumberFormat ss:Format="hh:mm"/></Style>\n' +
       '</Styles>\n' +
       '<Worksheet ss:Name="Report">\n' +
       '<Table>\n' +
@@ -1350,6 +1371,46 @@
 
     state.dashboard.filteredData = filtered;
     renderDashboardTable(filtered);
+  }
+
+  // The ERP saves CreatedDate as IST clock time and the API sends it with a 'Z', so read the parts as-is.
+  function erpDateTimeParts(value) {
+    const raw = value instanceof Date ? value.toISOString() : String(value || '');
+    const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}:\d{2}))?/.exec(raw);
+    return m ? { date: m[1], time: m[2] || '' } : { date: '', time: '' };
+  }
+
+  function exportDashboardReport() {
+    const rows = state.dashboard.filteredData || [];
+    if (!rows.length) {
+      alert('No data to export.');
+      return;
+    }
+    const headers = [
+      'QC Person', 'Date', 'Entry Count',
+      'First Entry Date', 'First Entry Time', 'Last Entry Date', 'Last Entry Time',
+      'Entries Per Hour',
+    ];
+    const dataRows = rows.map((row) => {
+      const first = erpDateTimeParts(row.FirstEntryAt);
+      const last = erpDateTimeParts(row.LastEntryAt);
+      const perHour = row.EntriesPerHour == null ? null : Math.round(Number(row.EntriesPerHour) * 100) / 100;
+      return [
+        String(getRowUserName(row) || ''),
+        { type: 'Date', value: erpDateTimeParts(row.WorkDate).date },
+        { type: 'Number', value: row.EntryCount },
+        { type: 'Date', value: first.date },
+        { type: 'Time', value: first.time },
+        { type: 'Date', value: last.date },
+        { type: 'Time', value: last.time },
+        { type: 'Number', value: perHour },
+      ];
+    });
+    const { startDate, endDate } = state.dashboard;
+    const person = elements.dashboardPersonFilter?.value || '';
+    const reportName = `QC Inspector Summary (${state.selectedDatabase})${person ? ' — ' + person : ''} — ${formatReportDate(startDate)} TO ${formatReportDate(endDate)} — times IST`;
+    downloadExcelReport(reportName, headers, dataRows,
+      `qc-inspector-summary-${state.selectedDatabase}-${startDate}-to-${endDate}.xls`);
   }
 
   function showDashboardSection() {
@@ -2514,6 +2575,8 @@
       applyDashboardFilter();
     });
   }
+
+  elements.dashboardExportBtn?.addEventListener('click', exportDashboardReport);
 
   if (elements.dashboardTableBody) {
     elements.dashboardTableBody.addEventListener('click', async (e) => {
