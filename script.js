@@ -1476,6 +1476,8 @@
     return value.slice(0, 10) === rowDate ? m[4] : `${m[3]} ${MONTHS[Number(m[2]) - 1]} ${m[4]}`;
   }
 
+  const SHIFT_LABELS = { 1: 'Shift 1 (8am–8pm)', 2: 'Shift 2 (8pm–8am)' };
+
   const DASHBOARD_TABS = {
     inspector: 'Daily performance overview',
     coverage: 'Was every running machine + process checked at least once an hour?',
@@ -1497,27 +1499,56 @@
         { key: 'ProcessName', label: 'Process' },
         { key: 'RunStart', label: 'Run Start', format: 'time' },
         { key: 'RunEnd', label: 'Run End', format: 'time' },
-        { key: 'RunHours', label: 'Run Hours (This Date)' },
+        { key: 'RunHours', label: 'Run Hours (8am–8am)' },
+        { key: 'Shift1RunHours', label: 'Shift 1 Run Hours' },
+        { key: 'Shift2RunHours', label: 'Shift 2 Run Hours' },
         { key: 'ChecksDone', label: 'Checks Done' },
         { key: 'HoursChecked', label: 'Hours Checked' },
         { key: 'HoursUnchecked', label: 'Hours Unchecked', drill: (row) => Number(row.HoursUnchecked) > 0 },
+        { key: 'Shift1HoursUnchecked', label: 'Shift 1 Unchecked', shift: 1, drill: (row) => Number(row.Shift1HoursUnchecked) > 0 },
+        { key: 'Shift2HoursUnchecked', label: 'Shift 2 Unchecked', shift: 2, drill: (row) => Number(row.Shift2HoursUnchecked) > 0 },
         { key: 'CoveragePct', label: 'Coverage %' },
+        { key: 'Shift1CoveragePct', label: 'Shift 1 Coverage %' },
+        { key: 'Shift2CoveragePct', label: 'Shift 2 Coverage %' },
         { key: 'LongestGapMin', label: 'Longest Gap Without Check (min)' },
         { key: 'Status', label: 'Status', format: 'status' },
         { key: 'LongEntries', label: 'ERP Entry Over 12 h', format: 'warning' },
       ],
-      summarize(rows) {
-        const missed = rows.filter((r) => r.Status === 'Missed').length;
-        const slots = rows.reduce((sum, r) => sum + Number(r.HoursChecked || 0) + Number(r.HoursUnchecked || 0), 0);
-        const checked = rows.reduce((sum, r) => sum + Number(r.HoursChecked || 0), 0);
+      // One shift picked: the same columns, filled from that shift's ShiftN* fields.
+      shiftColumns(n) {
+        const p = `Shift${n}`;
+        return [
+          { key: 'ReportDate', label: 'Date', format: 'date' },
+          { key: 'MachineName', label: 'Machine' },
+          { key: 'ProcessName', label: 'Process' },
+          { key: `${p}RunStart`, label: `Shift ${n} Start`, format: 'time' },
+          { key: `${p}RunEnd`, label: `Shift ${n} End`, format: 'time' },
+          { key: `${p}RunHours`, label: `Shift ${n} Run Hours` },
+          { key: `${p}ChecksDone`, label: 'Checks Done' },
+          { key: `${p}HoursChecked`, label: 'Hours Checked' },
+          { key: `${p}HoursUnchecked`, label: 'Hours Unchecked', shift: n, drill: (row) => Number(row[`${p}HoursUnchecked`]) > 0 },
+          { key: `${p}CoveragePct`, label: 'Coverage %' },
+          { key: `${p}LongestGapMin`, label: 'Longest Gap Without Check (min)' },
+          { key: `${p}Status`, label: 'Status', format: 'status' },
+          { key: 'LongEntries', label: 'ERP Entry Over 12 h', format: 'warning' },
+        ];
+      },
+      // p is '' for both shifts, else 'Shift1' / 'Shift2'.
+      summarize(rows, p = '') {
+        const missed = rows.filter((r) => r[`${p}Status`] === 'Missed').length;
+        const slots = rows.reduce((sum, r) => sum + Number(r[`${p}HoursChecked`] || 0) + Number(r[`${p}HoursUnchecked`] || 0), 0);
+        const checked = rows.reduce((sum, r) => sum + Number(r[`${p}HoursChecked`] || 0), 0);
         const pct = slots ? Math.round((checked * 1000) / slots) / 10 : null;
         return `${rows.length} machine-process days · ${missed} missed · ` +
           (pct == null ? 'no full run hours' : `${checked} of ${slots} run hours checked (${pct}%)`);
       },
       drill: {
         params: (row) => ({ startDate: row.ReportDate, endDate: row.ReportDate, machineId: row.MachineID, processId: row.ProcessID }),
-        title: (row) => `Unchecked hours: ${row.MachineName || 'Machine'} – ${row.ProcessName || 'Process'} (${formatReportDate(row.ReportDate)})`,
+        keep: (row, column) => (column?.shift ? (detail) => Number(detail.Shift) === column.shift : null),
+        title: (row, column) => `Unchecked hours: ${row.MachineName || 'Machine'} – ${row.ProcessName || 'Process'} ` +
+          `(${formatReportDate(row.ReportDate)}${column?.shift ? `, Shift ${column.shift}` : ''})`,
         columns: [
+          { key: 'Shift', label: 'Shift', format: 'shift' },
           { key: 'SlotStart', label: 'Slot Start', format: 'time' },
           { key: 'SlotEnd', label: 'Slot End', format: 'time' },
           { key: 'JobNo', label: 'Job No Running' },
@@ -1586,6 +1617,7 @@
     const value = row?.[column.key];
     if (value === null || value === undefined || value === '') return '-';
     if (column.format === 'date') return formatReportDate(value);
+    if (column.format === 'shift') return SHIFT_LABELS[value] || String(value);
     if (column.format === 'time') return formatReportTime(value, row[dateKey]);
     if (typeof value === 'number') return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
     return String(value);
@@ -1594,10 +1626,10 @@
   function renderReportRows(headEl, bodyEl, columns, rows, dateKey) {
     headEl.innerHTML = `<tr>${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr>`;
     bodyEl.innerHTML = rows.map((row, rowIndex) => {
-      const cells = columns.map((c) => {
+      const cells = columns.map((c, colIndex) => {
         const text = escapeHtml(formatReportCell(c, row, dateKey));
         if (c.format === 'status') {
-          const cls = row.Status === 'OK' ? 'ok' : 'bad';
+          const cls = row[c.key] === 'OK' ? 'ok' : 'bad';
           return `<td><span class="report-status ${cls}">${text}</span></td>`;
         }
         if (c.format === 'warning' && text !== '-') {
@@ -1608,7 +1640,7 @@
           return `<td><button type="button" class="entry-count-link check-detail-link${cls}" data-row-index="${rowIndex}" title="View each parameter, remark and photo">${text}</button></td>`;
         }
         if (c.drill && c.drill(row)) {
-          return `<td><button type="button" class="entry-count-link" data-row-index="${rowIndex}" title="View detail">${text}</button></td>`;
+          return `<td><button type="button" class="entry-count-link" data-row-index="${rowIndex}" data-col-index="${colIndex}" title="View detail">${text}</button></td>`;
         }
         return `<td>${text}</td>`;
       }).join('');
@@ -1638,19 +1670,28 @@
     const report = state.dashboard.reports[tab];
     const main = complianceEl(tab, 'filter-main')?.value || '';
     const status = complianceEl(tab, 'filter-status')?.value || '';
+    // A picked shift keeps the rows that ran in it, and status means that shift's status.
+    const shift = Number(complianceEl(tab, 'filter-shift')?.value) || 0;
+    const p = shift ? `Shift${shift}` : '';
+    const columns = shift ? cfg.shiftColumns(shift) : cfg.columns;
     const rows = (report?.rows || []).filter((r) =>
-      (!main || r[cfg.mainFilterKey] === main) && (!status || r.Status === status));
-    if (report) report.filteredRows = rows;
+      (!main || r[cfg.mainFilterKey] === main) && (!shift || r[`${p}Status`]) &&
+      (!status || r[`${p}Status`] === status));
+    if (report) {
+      report.filteredRows = rows;
+      report.columns = columns;
+      report.shift = shift;
+    }
 
     const summary = complianceEl(tab, 'summary');
-    if (summary) summary.textContent = report ? cfg.summarize(rows) : '';
+    if (summary) summary.textContent = report ? (shift ? `${SHIFT_LABELS[shift]}: ` : '') + cfg.summarize(rows, p) : '';
     const empty = !rows.length;
     complianceEl(tab, 'empty-state')?.classList.toggle('hidden', !empty || !report);
     complianceEl(tab, 'table-container')?.classList.toggle('hidden', empty);
     const exportBtn = complianceEl(tab, 'export');
     if (exportBtn) exportBtn.disabled = empty;
     if (!empty) {
-      renderReportRows(complianceEl(tab, 'table-head'), complianceEl(tab, 'table-body'), cfg.columns, rows, cfg.dateKey);
+      renderReportRows(complianceEl(tab, 'table-head'), complianceEl(tab, 'table-body'), columns, rows, cfg.dateKey);
     }
   }
 
@@ -1707,28 +1748,32 @@
 
   function exportComplianceReport(tab) {
     const cfg = COMPLIANCE_REPORTS[tab];
-    const rows = state.dashboard.reports[tab]?.filteredRows || [];
+    const report = state.dashboard.reports[tab];
+    const rows = report?.filteredRows || [];
     if (!rows.length) {
       alert('No data to export.');
       return;
     }
+    const columns = report.columns || cfg.columns;
     const { startDate, endDate } = state.dashboard;
-    const dataRows = rows.map((row) => cfg.columns.map((c) => formatReportCell(c, row, cfg.dateKey)));
-    const reportName = `${cfg.reportName} (${state.selectedDatabase}) — ${formatReportDate(startDate)} TO ${formatReportDate(endDate)}`;
-    downloadExcelReport(reportName, cfg.columns.map((c) => c.label), dataRows,
-      `${cfg.filePrefix}-${state.selectedDatabase}-${startDate}-to-${endDate}.xls`);
+    const dataRows = rows.map((row) => columns.map((c) => formatReportCell(c, row, cfg.dateKey)));
+    const shiftName = report.shift ? ` — ${SHIFT_LABELS[report.shift].toUpperCase()}` : '';
+    const reportName = `${cfg.reportName} (${state.selectedDatabase})${shiftName} — ${formatReportDate(startDate)} TO ${formatReportDate(endDate)}`;
+    downloadExcelReport(reportName, columns.map((c) => c.label), dataRows,
+      `${cfg.filePrefix}-${state.selectedDatabase}${report.shift ? `-shift${report.shift}` : ''}-${startDate}-to-${endDate}.xls`);
   }
 
-  async function openComplianceDrillDown(tab, row) {
+  async function openComplianceDrillDown(tab, row, column) {
     const drill = COMPLIANCE_REPORTS[tab].drill;
     const dateKey = COMPLIANCE_REPORTS[tab].dateKey;
     showLoading();
     try {
       let rows = await fetchComplianceReport(tab, { ...drill.params(row), mode: 'DETAIL' });
-      if (drill.keep) rows = rows.filter(drill.keep(row));
+      const keep = drill.keep?.(row, column);
+      if (keep) rows = rows.filter(keep);
       state.dashboard.drillRows = rows;
       const titleEl = elements.dashboardAuditDetailModalTitle;
-      if (titleEl) titleEl.textContent = drill.title(row);
+      if (titleEl) titleEl.textContent = drill.title(row, column);
       const empty = !rows.length;
       elements.dashboardAuditDetailEmpty?.classList.toggle('hidden', !empty);
       elements.dashboardAuditDetailTableWrap?.classList.toggle('hidden', empty);
@@ -1805,12 +1850,14 @@
   Object.keys(COMPLIANCE_REPORTS).forEach((tab) => {
     complianceEl(tab, 'filter-main')?.addEventListener('change', () => renderComplianceReport(tab));
     complianceEl(tab, 'filter-status')?.addEventListener('change', () => renderComplianceReport(tab));
+    complianceEl(tab, 'filter-shift')?.addEventListener('change', () => renderComplianceReport(tab));
     complianceEl(tab, 'export')?.addEventListener('click', () => exportComplianceReport(tab));
     complianceEl(tab, 'table-body')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.entry-count-link');
       if (!btn) return;
-      const row = state.dashboard.reports[tab]?.filteredRows?.[parseInt(btn.dataset.rowIndex, 10)];
-      if (row) openComplianceDrillDown(tab, row);
+      const report = state.dashboard.reports[tab];
+      const row = report?.filteredRows?.[parseInt(btn.dataset.rowIndex, 10)];
+      if (row) openComplianceDrillDown(tab, row, report.columns?.[parseInt(btn.dataset.colIndex, 10)]);
     });
   });
 

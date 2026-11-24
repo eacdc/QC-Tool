@@ -214,6 +214,14 @@
               </select>
             </div>
             <div class="filter-group">
+              <label for="coverage-filter-shift">Shift</label>
+              <select id="coverage-filter-shift">
+                <option value="">Both Shifts</option>
+                <option value="1">Shift 1 (8am–8pm)</option>
+                <option value="2">Shift 2 (8pm–8am)</option>
+              </select>
+            </div>
+            <div class="filter-group">
               <label for="coverage-filter-status">Status</label>
               <select id="coverage-filter-status">
                 <option value="">All</option>
@@ -235,7 +243,7 @@
               </table>
             </div>
           </div>
-          <p class="report-note">Each run is cut into 1-hour slots from when it started; a slot needs at least 1 QC check. A final slot under 30 minutes, and the hour still in progress, are not counted. Run Start and Run End show the date too when the run began or ended on another day; Run Hours counts only this date. ERP Entry Over 12 h lists jobs probably left open in the ERP, so check those before counting missed hours. Tap Hours Unchecked to see the missed hours. All times IST.</p>
+          <p class="report-note">A date runs 8am to 8am: Shift 1 is 8am–8pm and Shift 2 is 8pm to 8am the next morning. Each run is cut at 8am and 8pm, then into 1-hour slots from when it started in that shift; a slot needs at least 1 QC check. A final slot under 30 minutes, and the hour still in progress, are not counted. A shift's last hour also counts as checked if the check was done by 9pm / 9am. Run Start and Run End show the date too when the run began or ended on another day; Run Hours counts only this date. Pick a shift to see only that shift's numbers. ERP Entry Over 12 h lists jobs probably left open in the ERP, so check those before counting missed hours. Tap Hours Unchecked to see the missed hours. All times IST.</p>
         </div>
 
         <div id="dashboard-panel-operator" class="dashboard-panel hidden">
