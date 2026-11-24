@@ -942,6 +942,47 @@ select:focus {
   min-width: 14rem;
 }
 
+.report-alert {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.report-eye-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: none;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  border-radius: 6px;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0;
+}
+
+.report-eye-btn:hover {
+  color: var(--primary-hover);
+  border-color: var(--primary-color);
+}
+
+.report-eye-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+/* Summary lines above a detail table (job totals in the machine-use card) */
+.report-card-note {
+  margin-bottom: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.report-card-note:empty {
+  display: none;
+}
+
 /* Audit Form Section */
 #audit-form-section {
   width: 100%;

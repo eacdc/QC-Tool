@@ -113,6 +113,7 @@
     dashboardAuditDetailModal: document.getElementById('dashboard-audit-detail-modal'),
     dashboardAuditDetailModalTitle: document.getElementById('dashboard-audit-detail-modal-title'),
     dashboardAuditDetailEmpty: document.getElementById('dashboard-audit-detail-empty'),
+    dashboardAuditDetailNote: document.getElementById('dashboard-audit-detail-note'),
     dashboardAuditDetailTableWrap: document.getElementById('dashboard-audit-detail-table-wrap'),
     dashboardAuditDetailTableHead: document.getElementById('dashboard-audit-detail-table-head'),
     dashboardAuditDetailTableBody: document.getElementById('dashboard-audit-detail-table-body'),
@@ -1124,6 +1125,7 @@
 
   function closeDashboardAuditDetailModal() {
     elements.dashboardAuditDetailModal?.classList.add('hidden');
+    if (elements.dashboardAuditDetailNote) elements.dashboardAuditDetailNote.innerHTML = '';
   }
 
   function renderJobCardTableInModal(rows = [], jobBookingNo = '') {
@@ -1494,6 +1496,7 @@
       mainFilterAll: 'All Machines',
       badStatus: 'Missed',
       columns: [
+        { key: 'MachineID', label: '', format: 'eye' },
         { key: 'ReportDate', label: 'Date', format: 'date' },
         { key: 'MachineName', label: 'Machine' },
         { key: 'ProcessName', label: 'Process' },
@@ -1518,6 +1521,7 @@
       shiftColumns(n) {
         const p = `Shift${n}`;
         return [
+          { key: 'MachineID', label: '', format: 'eye' },
           { key: 'ReportDate', label: 'Date', format: 'date' },
           { key: 'MachineName', label: 'Machine' },
           { key: 'ProcessName', label: 'Process' },
@@ -1611,6 +1615,16 @@
     return parts.join(' · ');
   }
 
+  function formatMinutes(minutes) {
+    const total = Math.max(0, Math.round(Number(minutes) || 0));
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return h ? `${h} h ${m} min` : `${m} min`;
+  }
+
+  const EYE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>';
+
   function formatReportCell(column, row, dateKey) {
     // TransactionID arrives once 003 is re-run after 004; before that the counts are unknown.
     if (column.format === 'checkDetail') return row?.TransactionID ? formatCheckSummary(row) : '-';
@@ -1618,6 +1632,7 @@
     if (value === null || value === undefined || value === '') return '-';
     if (column.format === 'date') return formatReportDate(value);
     if (column.format === 'shift') return SHIFT_LABELS[value] || String(value);
+    if (column.format === 'duration') return formatMinutes(value);
     if (column.format === 'time') return formatReportTime(value, row[dateKey]);
     if (typeof value === 'number') return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
     return String(value);
@@ -1627,7 +1642,14 @@
     headEl.innerHTML = `<tr>${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr>`;
     bodyEl.innerHTML = rows.map((row, rowIndex) => {
       const cells = columns.map((c, colIndex) => {
+        if (c.format === 'eye') {
+          return `<td><button type="button" class="report-eye-btn" data-row-index="${rowIndex}" ` +
+            `title="See the jobs this machine ran on this date" aria-label="See the jobs this machine ran on this date">${EYE_ICON}</button></td>`;
+        }
         const text = escapeHtml(formatReportCell(c, row, dateKey));
+        if (c.warn && c.warn(row)) {
+          return `<td class="report-alert">${text}</td>`;
+        }
         if (c.format === 'status') {
           const cls = row[c.key] === 'OK' ? 'ok' : 'bad';
           return `<td><span class="report-status ${cls}">${text}</span></td>`;
@@ -1754,7 +1776,7 @@
       alert('No data to export.');
       return;
     }
-    const columns = report.columns || cfg.columns;
+    const columns = (report.columns || cfg.columns).filter((c) => c.format !== 'eye');
     const { startDate, endDate } = state.dashboard;
     const dataRows = rows.map((row) => columns.map((c) => formatReportCell(c, row, cfg.dateKey)));
     const shiftName = report.shift ? ` — ${SHIFT_LABELS[report.shift].toUpperCase()}` : '';
@@ -1783,6 +1805,74 @@
       openDashboardAuditDetailModal();
     } catch (error) {
       alert('Failed to load detail: ' + error.message);
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // Eye icon on a coverage row: every ERP production entry of that machine on that
+  // date (8am to 8am), so a supervisor can see where the run hours came from.
+  const LONG_ENTRY_MINUTES = 12 * 60;
+  const MACHINE_ENTRY_COLUMNS = [
+    { key: 'JobNo', label: 'Job No' },
+    { key: 'ProcessName', label: 'Process' },
+    { key: 'EntryStart', label: 'Actual Start', format: 'time' },
+    { key: 'EntryEnd', label: 'Actual End', format: 'time' },
+    { key: 'MinutesTaken', label: 'Time Taken', format: 'duration', warn: (r) => Number(r.MinutesTaken) >= LONG_ENTRY_MINUTES },
+    { key: 'MinutesInDate', label: 'Time in This Date', format: 'duration' },
+    { key: 'ProducedQty', label: 'Produced Qty' },
+    { key: 'MachineOperator', label: 'Machine Operator' },
+    { key: 'EntryStatus', label: 'ERP Status' },
+    { key: 'Remark', label: 'Remark' },
+  ];
+
+  function machineEntriesNote(rows) {
+    const jobs = new Map();
+    rows.forEach((r) => {
+      const key = `${r.JobNo || 'No job'}|${r.ProcessName || ''}`;
+      const job = jobs.get(key) || { name: `${r.JobNo || 'No job'} – ${r.ProcessName || 'Process'}`, jobName: r.JobName || '',
+        n: 0, taken: 0, inDate: 0, noChecklist: !r.HasQCChecklist };
+      job.n += 1;
+      job.taken += Number(r.MinutesTaken) || 0;
+      job.inDate += Number(r.MinutesInDate) || 0;
+      jobs.set(key, job);
+    });
+    const lines = Array.from(jobs.values()).map((j) =>
+      `<strong>${escapeHtml(j.name)}</strong>${j.jobName ? ` (${escapeHtml(j.jobName)})` : ''}: ${j.n} entr${j.n === 1 ? 'y' : 'ies'}, ` +
+      `${escapeHtml(formatMinutes(j.taken))} taken, ${escapeHtml(formatMinutes(j.inDate))} in this date` +
+      (j.noChecklist ? ' (no QC checklist, not in this report)' : ''));
+    const long = rows.filter((r) => Number(r.MinutesTaken) >= LONG_ENTRY_MINUTES);
+    if (long.length) {
+      lines.push(`<span class="report-alert">${long.length} entr${long.length === 1 ? 'y was' : 'ies were'} open 12 hours or more ` +
+        '(highlighted). The report counts all of that time as run time, so if the machine was really stopped, ' +
+        'the entry was left open in the ERP.</span>');
+    }
+    return lines.join('<br>');
+  }
+
+  async function openMachineEntries(row) {
+    showLoading();
+    try {
+      const rows = (await fetchComplianceReport('coverage', {
+        startDate: row.ReportDate, endDate: row.ReportDate, machineId: row.MachineID, mode: 'ENTRIES',
+      })).map((r) => ({ ...r, ReportDate: row.ReportDate }));
+      state.dashboard.drillRows = rows;
+      const titleEl = elements.dashboardAuditDetailModalTitle;
+      if (titleEl) {
+        titleEl.textContent = `Jobs on ${row.MachineName || 'machine'}: ${formatReportDate(row.ReportDate)} ` +
+          '(8am to 8am next day)';
+      }
+      if (elements.dashboardAuditDetailNote) elements.dashboardAuditDetailNote.innerHTML = machineEntriesNote(rows);
+      const empty = !rows.length;
+      elements.dashboardAuditDetailEmpty?.classList.toggle('hidden', !empty);
+      elements.dashboardAuditDetailTableWrap?.classList.toggle('hidden', empty);
+      if (!empty && elements.dashboardAuditDetailTableHead && elements.dashboardAuditDetailTableBody) {
+        renderReportRows(elements.dashboardAuditDetailTableHead, elements.dashboardAuditDetailTableBody,
+          MACHINE_ENTRY_COLUMNS, rows, 'ReportDate');
+      }
+      openDashboardAuditDetailModal();
+    } catch (error) {
+      alert('Failed to load jobs: ' + error.message);
     } finally {
       hideLoading();
     }
@@ -1853,6 +1943,12 @@
     complianceEl(tab, 'filter-shift')?.addEventListener('change', () => renderComplianceReport(tab));
     complianceEl(tab, 'export')?.addEventListener('click', () => exportComplianceReport(tab));
     complianceEl(tab, 'table-body')?.addEventListener('click', (e) => {
+      const eye = e.target.closest('.report-eye-btn');
+      if (eye) {
+        const row = state.dashboard.reports[tab]?.filteredRows?.[parseInt(eye.dataset.rowIndex, 10)];
+        if (row) openMachineEntries(row);
+        return;
+      }
       const btn = e.target.closest('.entry-count-link');
       if (!btn) return;
       const report = state.dashboard.reports[tab];
